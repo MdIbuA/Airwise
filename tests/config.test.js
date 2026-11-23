@@ -3,13 +3,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const KEYS = ['GEMINI_API_KEY', 'GEMINI_API_KEY_BACKUP', 'GOOGLE_API_KEY', 'GOOGLE_API_KEY_BACKUP', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY_BACKUP', 'AIRWISE_LLM_PROVIDER', 'AIRWISE_DISABLE_LLM'];
+const KEYS = ['GEMINI_API_KEY', 'GEMINI_API_KEY_BACKUP', 'GOOGLE_API_KEY', 'GOOGLE_API_KEY_BACKUP', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY_BACKUP', 'AIRWISE_LLM_PROVIDER', 'AIRWISE_DISABLE_LLM', 'NODE_ENV'];
 
 /** Loads a fresh copy of config.js under the given environment. */
 function loadConfig(vars) {
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
   for (const k of KEYS) delete process.env[k];
-  Object.assign(process.env, vars);
+  // NODE_ENV=test stops config.js from reading a developer's local .env file.
+  Object.assign(process.env, { NODE_ENV: 'test' }, vars);
   try {
     delete require.cache[require.resolve('../src/config')];
     return require('../src/config');

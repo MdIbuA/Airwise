@@ -114,13 +114,23 @@ Every number the user sees comes from the engine. The model is only allowed to u
 
 ## How it works (run it)
 
-Requirements: Node.js 20+ (22 recommended).
+Requirements: Node.js 20.12+ (22 recommended). AirWise loads `.env` automatically with Node's built-in parser; real environment variables take precedence.
 
+**macOS / Linux**
 ```bash
 npm install
-cp .env.example .env        # optional: add GEMINI_API_KEY (+ GEMINI_API_KEY_BACKUP)
+cp .env.example .env        # then edit .env: GEMINI_API_KEY=... (+ GEMINI_API_KEY_BACKUP=...)
 npm start                   # http://localhost:8080
 ```
+
+**Windows (Command Prompt / PowerShell)**
+```bat
+npm install
+copy .env.example .env
+notepad .env
+npm start
+```
+In Notepad, fill in `GEMINI_API_KEY=` and `GEMINI_API_KEY_BACKUP=` and save. Don't type these lines into the terminal.
 
 Without an API key, AirWise still works fully in **rule-based mode**. If the air-quality API is unreachable, open *"Enter AQI manually"* in the form.
 

@@ -1,5 +1,13 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
+// Load .env (if present) using Node's built-in parser — no dotenv dependency.
+// Real environment variables always win over values in the file.
+const envFile = path.join(__dirname, '..', '.env');
+if (process.env.NODE_ENV !== 'test' && fs.existsSync(envFile)) process.loadEnvFile(envFile);
+
 /**
  * Central runtime configuration. Every value can be overridden through
  * environment variables so the same build runs locally, in CI and in the cloud.
