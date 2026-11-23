@@ -1,0 +1,21 @@
+# Render Blueprint: one-click deploy of AirWise as a free web service.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: airwise
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Secrets: Render prompts for these on first deploy (never commit them).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY_BACKUP
+        sync: false

@@ -1,5 +1,7 @@
 # AirWise: a clean-air coach for smog season 🌫️
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MdIbuA/Airwise)
+
 ![AirWise home screen](docs/screenshots/hero.png)
 
 AirWise is a GenAI-powered assistant for families and communities living through severe winter smog and urban air pollution. You enter your city and a short household profile. AirWise then:
@@ -205,6 +207,19 @@ npm run check           # all of the above
 | `AIRWISE_DISABLE_LLM` | No | `true` forces rule-based mode |
 
 Keys are read only on the server. Never commit `.env` (it is git-ignored); on a cloud host, use its secret manager.
+
+### Deploy to Render (free, ~5 minutes)
+The repo includes a [`render.yaml`](render.yaml) blueprint:
+- A Node 22 web service on the free plan.
+- Production-only install.
+- Health check at `/api/health`.
+- Auto-deploy on every push to `main`.
+
+1. Click the **Deploy to Render** button at the top of this README, then sign in to Render with GitHub.
+2. When prompted, paste `GEMINI_API_KEY` and `GEMINI_API_KEY_BACKUP`. Both are optional; without them the app runs in rule-based mode.
+3. Click **Apply**. Your app goes live at `https://airwise-xxxx.onrender.com`.
+
+Free instances sleep after about 15 minutes idle, so the first request after that takes around 30 seconds.
 
 ### Docker / Cloud Run
 ```bash
