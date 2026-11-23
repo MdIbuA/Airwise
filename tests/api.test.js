@@ -12,7 +12,7 @@ async function startServer({ fail = false, rateLimitPerMinute = 100 } = {}) {
   const { fetchImpl } = makeFetch({ fail });
   const app = createApp({
     airQuality: createAirQualityService({ fetchImpl }),
-    assistant: createAssistant({ enabled: false, model: 'x' }),
+    assistant: createAssistant({ enabled: false }),
     rateLimitPerMinute,
     logger: silentLogger,
   });

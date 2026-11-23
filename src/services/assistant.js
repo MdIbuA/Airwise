@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { TtlCache } = require('../utils/cache');
 
 /**
- * GenAI layer. Claude turns the rule engine's structured plan into a short,
+ * GenAI layer. An LLM (Google Gemini by default, or Claude) turns the rule engine's structured plan into a short,
  * empathetic, family-friendly briefing and answers the user's free-text
  * question. It is *grounded*: the prompt contains only engine facts, and the
  * model is told not to invent numbers. If the API is unavailable, a
@@ -117,67 +117,36 @@ function shouldFailover(error) {
 }
 
 /**
- * @param {{ enabled: boolean, model: string, apiKeys?: string[], timeoutMs?: number,
- *           ttlMs?: number, clients?: object[], logger?: Console }} options
- *   `clients` may be injected (tests); otherwise one Anthropic SDK client is
- *   created lazily per API key, in priority order (primary, then backup).
+ * @param {{ enabled: boolean, providers?: Array<{name:string, generate:Function}>,
+ *           ttlMs?: number, logger?: Console }} options
+ *   `providers` are tried in order (primary key, then backup); see llmProviders.js.
  */
-function createAssistant({ enabled, model, apiKeys = [], timeoutMs = 30000, ttlMs = 900000, clients, logger = console }) {
+function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = console }) {
   const cache = new TtlCache({ ttlMs, maxEntries: 300 });
-  let sdkClients = clients;
+  const active = enabled && providers.length > 0;
 
-  function getClients() {
-    if (!sdkClients) {
-      const Anthropic = require('@anthropic-ai/sdk');
-      const Ctor = Anthropic.default || Anthropic;
-      // Keys stay server-side; never sent to the browser or written to logs.
-      const keys = apiKeys.length ? apiKeys : [undefined]; // undefined -> SDK reads env
-      sdkClients = keys.map((apiKey) => new Ctor({ apiKey, timeout: timeoutMs, maxRetries: 1 }));
-    }
-    return sdkClients;
-  }
-
-  /** Tries each client in order, moving to the next only on retryable errors. */
-  async function createWithFailover(params) {
-    const all = getClients();
+  /** Tries each provider in order, moving on only for retryable errors. */
+  async function generateWithFailover(request) {
     let lastError;
-    for (let i = 0; i < all.length; i += 1) {
+    for (let i = 0; i < providers.length; i += 1) {
       try {
-        return await all[i].beta.messages.create(params);
+        return await providers[i].generate(request);
       } catch (error) {
         lastError = error;
-        if (!shouldFailover(error) || i === all.length - 1) break;
-        logger.warn(`[assistant] key #${i + 1} failed (${error.status || 'network'}), trying backup key`);
+        if (!shouldFailover(error) || i === providers.length - 1) break;
+        // Log provider label and status only — never keys or prompts.
+        logger.warn(`[assistant] ${providers[i].name} failed (${error.status || 'network'}), trying backup key`);
       }
     }
     throw lastError;
   }
 
   async function callModel(payload, question) {
-    const userContent =
+    const user =
       `Household plan (JSON):\n${JSON.stringify(payload)}\n\n` +
       `<user_question>${question || ''}</user_question>\n\n` +
       'Write the briefing as JSON matching the schema.';
-
-    const response = await createWithFailover({
-      model,
-      max_tokens: 2000,
-      // Server-side fallback keeps answers flowing if the primary model declines.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      // Narrating pre-computed facts is a light task: low effort = faster, cheaper.
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: OUTPUT_SCHEMA } },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    });
-
-    if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
-      throw new Error(`Model stopped early: ${response.stop_reason}`);
-    }
-    const text = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('');
+    const text = await generateWithFailover({ system: SYSTEM_PROMPT, user, schema: OUTPUT_SCHEMA });
     const parsed = JSON.parse(text);
     if (!isValidNarrative(parsed)) throw new Error('Model output failed schema check');
     parsed.priorities = parsed.priorities.slice(0, 3);
@@ -189,7 +158,7 @@ function createAssistant({ enabled, model, apiKeys = [], timeoutMs = 30000, ttlM
    * @returns {Promise<{summary:string, priorities:Array, answer:string, source:'ai'|'rules'}>}
    */
   async function narrate(plan, profile, air) {
-    if (!enabled) return { ...templateNarrative(plan, profile), source: 'rules' };
+    if (!active) return { ...templateNarrative(plan, profile), source: 'rules' };
     const payload = buildPromptPayload(plan, profile, air);
     const key = crypto.createHash('sha256').update(JSON.stringify([payload, profile.question])).digest('hex');
     try {

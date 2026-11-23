@@ -20,7 +20,7 @@ const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 test('AirWise UI', async (t) => {
   const app = createApp({
     airQuality: createAirQualityService({ fetchImpl: makeFetch().fetchImpl }),
-    assistant: createAssistant({ enabled: false, model: 'x' }),
+    assistant: createAssistant({ enabled: false }),
     rateLimitPerMinute: 1000,
     logger: silentLogger,
   });

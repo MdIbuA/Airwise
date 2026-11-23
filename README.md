@@ -11,7 +11,7 @@ AirWise is a GenAI-powered assistant for families and communities living through
 
 It also produces a **shareable community alert** with no personal details. You can forward it to a building, school or neighbourhood group, so one family's plan protects the people around them.
 
-Claude writes a short briefing from these results, lists the household's top three actions and answers the user's own question in plain language.
+**Google Gemini** (or Claude, if configured) writes a short briefing from these results, lists the household's top three actions and answers the user's own question in plain language.
 
 ---
 
@@ -19,11 +19,11 @@ Claude writes a short briefing from these results, lists the household's top thr
 
 | Criterion | What we did | Where |
 |---|---|---|
-| **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A.</li></ul> | `recommendationEngine.js`, `assistant.js` |
+| **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A (Gemini), with backup-key failover.</li></ul> | `recommendationEngine.js`, `assistant.js` |
 | **Code quality** | <ul><li>Layered design: routes, services, a pure rule engine and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc on public functions; ESLint (flat config) enforced in CI.</li><li>Small, single-purpose modules.</li></ul> | `src/`, `eslint.config.js` |
 | **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
-| **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Low-effort LLM call, since it only narrates facts that are already computed.</li><li>No front-end framework (≈10 kB of JS); 5 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
-| **Testing** | <ul><li>**56 unit/API tests** (~98% line coverage), fully offline.</li><li>**7 browser E2E tests** covering the full flow, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
+| **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Small, low-temperature LLM call with a capped output, since it only narrates facts that are already computed; only the configured vendor SDK is loaded.</li><li>No front-end framework (≈10 kB of JS); 6 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
+| **Testing** | <ul><li>**64 unit/API tests** (~99% line coverage), fully offline.</li><li>**7 browser E2E tests** covering the full flow, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
 | **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
 
 ---
@@ -50,9 +50,9 @@ Express API ──► Air-quality service ──► Open-Meteo geocoding + air-q
 Recommendation engine (deterministic, unit-tested)
    │  risk • routine • indoor hacks • alternatives • quantified impact
    ▼
-GenAI assistant (Claude, structured JSON output, grounded on engine facts)
+GenAI assistant (Gemini by default / Claude, JSON-schema output, grounded on engine facts)
    │  briefing • top 3 actions • answer to user question
-   │  └─ falls back to a rule-based template if the API is missing or fails
+   │  └─ primary key → backup key → rule-based template (never fails)
    ▼
 JSON response ──► rendered with DOM APIs only (no innerHTML)
 ```
@@ -96,8 +96,8 @@ Every number the user sees comes from the engine. The model is only allowed to u
 7. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
 
 ### GenAI layer (`src/services/assistant.js`)
-- **Model:** Claude (`claude-opus-5-5` by default; set `AIRWISE_MODEL` to change it).
-- **Structured outputs:** a JSON schema (`output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
+- **Provider:** **Google Gemini** (`gemini-3.8-flash`) via the official `@google/genai` SDK by default. **Claude** (`claude-opus-5-5`) via `@anthropic-ai/sdk` is also supported. Both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
+- **Structured outputs:** a JSON schema (Gemini `responseJsonSchema`, Claude `output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
 - **Grounded prompt:** the model receives the engine's plan as JSON and must not invent statistics.
 - **Prompt-injection defence:** the user's question goes inside `<user_question>` tags and is labelled as data. Off-topic requests are declined.
 - **Efficiency:**
@@ -105,8 +105,8 @@ Every number the user sees comes from the engine. The model is only allowed to u
   - Responses are cached for 15 minutes, keyed by a SHA-256 hash of the inputs.
   - The prompt payload is minimal and contains no personal data beyond the city.
 - **Resilience:**
-  - **Backup API key failover:** if the primary key is rejected (401/403), rate-limited (429), overloaded (5xx) or unreachable, the request is retried once with `ANTHROPIC_API_KEY_BACKUP`. Bad requests (400) are not retried, because they would fail the same way.
-  - Server-side model fallback.
+  - **Backup API key failover:** if the primary key is rejected (401/403, including Gemini's "API key not valid" 400), rate-limited or out of quota (429), overloaded (5xx) or unreachable, the request is retried once with the backup key. Bad requests and safety stops are not retried, because they would fail the same way.
+  - Claude also uses server-side model fallback.
   - Timeout and a single retry.
   - On a refusal, error or malformed output, the user still gets a rule-based briefing (`source: "rules"`).
 
@@ -118,17 +118,17 @@ Requirements: Node.js 20+ (22 recommended).
 
 ```bash
 npm install
-cp .env.example .env        # optional: add ANTHROPIC_API_KEY (+ ANTHROPIC_API_KEY_BACKUP)
+cp .env.example .env        # optional: add GEMINI_API_KEY (+ GEMINI_API_KEY_BACKUP)
 npm start                   # http://localhost:8080
 ```
 
-Without `ANTHROPIC_API_KEY`, AirWise still works fully in **rule-based mode**. If the air-quality API is unreachable, open *"Enter AQI manually"* in the form.
+Without an API key, AirWise still works fully in **rule-based mode**. If the air-quality API is unreachable, open *"Enter AQI manually"* in the form.
 
 ### Quality checks
 ```bash
 npm run lint            # ESLint
-npm test                # 56 unit + API tests (node:test, fully offline)
-npm run test:coverage   # ~98% line coverage of src/
+npm test                # 64 unit + API tests (node:test, fully offline)
+npm run test:coverage   # ~99% line coverage of src/
 npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
 npm run check           # all of the above
 ```
@@ -139,9 +139,11 @@ npm run check           # all of the above
 ### Environment variables
 | Variable | Required | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | No | Turns on AI briefings and Q&A |
-| `ANTHROPIC_API_KEY_BACKUP` | No | Failover key, used only if the primary fails |
-| `AIRWISE_MODEL` | No | Claude model (default `claude-opus-5-5`) |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | No | Turns on Gemini briefings and Q&A |
+| `GEMINI_API_KEY_BACKUP` (or `GOOGLE_API_KEY_BACKUP`) | No | Failover key, used only if the primary fails |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY_BACKUP` | No | Use Claude instead (picked automatically when no Google key is set) |
+| `AIRWISE_LLM_PROVIDER` | No | `gemini` or `anthropic`, to force a provider |
+| `AIRWISE_MODEL` | No | Model override (defaults: `gemini-3.8-flash`, `claude-opus-5-5`) |
 | `PORT` | No | HTTP port (default 8080) |
 | `AIRWISE_RATE_LIMIT` | No | API requests/min per IP (default 30; `/api/plan` gets a third) |
 | `AIRWISE_DISABLE_LLM` | No | `true` forces rule-based mode |
@@ -151,7 +153,7 @@ Keys are read only on the server. Never commit `.env` (it is git-ignored); on a 
 ### Docker / Cloud Run
 ```bash
 docker build -t airwise .
-docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
+docker run -p 8080:8080 -e GEMINI_API_KEY=... -e GEMINI_API_KEY_BACKUP=... airwise
 ```
 
 ### API
@@ -191,7 +193,8 @@ src/
   services/
     airQuality.js           # Open-Meteo client + forecast analysis
     recommendationEngine.js # decision logic
-    assistant.js            # Claude narrative + fallback
+    assistant.js            # grounded LLM narrative, key failover, rule fallback
+    llmProviders.js         # Gemini + Claude adapters (same interface)
   utils/                    # validation, TTL cache, errors
 public/                     # accessible vanilla-JS front end
 tests/                      # node:test unit + API suites

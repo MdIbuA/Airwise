@@ -4,6 +4,7 @@ const config = require('./config');
 const { createApp } = require('./app');
 const { createAirQualityService } = require('./services/airQuality');
 const { createAssistant } = require('./services/assistant');
+const { createProviders, DEFAULT_MODELS } = require('./services/llmProviders');
 
 const app = createApp({
   airQuality: createAirQualityService({
@@ -13,16 +14,19 @@ const app = createApp({
   }),
   assistant: createAssistant({
     enabled: config.llmEnabled,
-    model: config.llmModel,
-    apiKeys: config.apiKeys,
-    timeoutMs: config.llmTimeoutMs,
+    providers: createProviders({
+      provider: config.llmProvider,
+      apiKeys: config.apiKeys,
+      model: config.llmModel,
+      timeoutMs: config.llmTimeoutMs,
+    }),
     ttlMs: config.planTtlMs,
   }),
   rateLimitPerMinute: config.rateLimitPerMinute,
 });
 
 const server = app.listen(config.port, () => {
-  console.log(`AirWise listening on http://localhost:${config.port} (AI narrative: ${config.llmEnabled ? `on, ${config.apiKeys.length} key(s)` : 'off, rule-based'})`);
+  console.log(`AirWise listening on http://localhost:${config.port} (AI: ${config.llmEnabled ? `${config.llmProvider} ${config.llmModel || DEFAULT_MODELS[config.llmProvider]}, ${config.apiKeys.length} key(s)` : 'off, rule-based'})`);
 });
 
 // Graceful shutdown for containers (Cloud Run / Docker send SIGTERM).
