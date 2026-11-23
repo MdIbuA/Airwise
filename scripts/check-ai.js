@@ -33,7 +33,7 @@ async function listGeminiModels(apiKey) {
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m) => m.name.replace('models/', ''))
       .filter((n) => /^gemini/.test(n) && !/(tts|image|audio|live|embedding)/.test(n));
-    if (names.length) console.log(`\nText models your key can use: ${names.join(', ')}`);
+    if (names.length) console.log(`Text models your key can use: ${names.join(', ')}`);
   } catch {
     /* listing is best-effort */
   }
@@ -53,6 +53,8 @@ async function main() {
   }
   if (process.env.AIRWISE_DISABLE_LLM === 'true') console.log('⚠ AIRWISE_DISABLE_LLM=true is set — the server will not use AI.');
 
+  if (config.llmProvider === 'gemini') await listGeminiModels(config.apiKeys[0]);
+  console.log('\nTesting each key (this can take up to ~30 s if models are busy)...');
   const providers = createProviders({ provider: config.llmProvider, apiKeys: config.apiKeys, model, timeoutMs: 20000 });
   const schema = { type: 'object', properties: { ok: { type: 'string' } }, required: ['ok'], additionalProperties: false };
   let working = 0;
@@ -71,8 +73,13 @@ async function main() {
       console.log(`  → ${HINTS[status] || 'See the message above.'}`);
     }
   }
-  if (config.llmProvider === 'gemini') await listGeminiModels(config.apiKeys[0]);
-  console.log(working ? `\nAI is ready (${working}/${providers.length} key(s) working). Restart the server if it is running.` : '\nNo key works, so the app will use rule-based briefings.');
+  console.log('\n==================== RESULT ====================');
+  console.log(
+    working
+      ? `✔ AI IS WORKING (${working}/${providers.length} key(s)). Restart "npm start" if it is running.`
+      : '✖ AI IS NOT WORKING: the app will use rule-based briefings. See the ✖ lines above.',
+  );
+  console.log('================================================');
   if (!working) process.exitCode = 1;
 }
 
