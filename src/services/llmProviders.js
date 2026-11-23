@@ -163,8 +163,18 @@ function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic'
 
 const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-3.8-flash', anthropic: 'claude-opus-5-5' });
 /** Tried in order after the chosen model if Google reports it unavailable. */
-// Models that don't exist for a key return 404 and are skipped automatically.
-const GEMINI_FALLBACK_MODELS = Object.freeze(['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+// Preference order, newest stable Flash first, then lighter models, then
+// Google's rolling aliases as a last resort. Models a key can't use return
+// 404 and are skipped automatically.
+const GEMINI_FALLBACK_MODELS = Object.freeze([
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+]);
 const FACTORIES = Object.freeze({ gemini: createGeminiProvider, anthropic: createAnthropicProvider });
 
 /**
