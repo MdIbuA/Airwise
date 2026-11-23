@@ -17,6 +17,7 @@ const HINTS = {
   404: 'None of the models tried is available to this key. Set AIRWISE_MODEL in .env to a model named in the message above (e.g. the one Google recommends).',
   429: 'Quota or rate limit reached on this key. Wait, or use the backup key / a billing-enabled project.',
   500: 'Google had a temporary server error. Try again in a few minutes.',
+  504: 'Google timed out (temporary, on Google\'s side). The app retries and switches models automatically; your other key/model will be used meanwhile.',
   503: 'Google\'s servers for every model tried are overloaded right now (temporary). Try again in a few minutes; the app retries and switches models automatically.',
   network: 'Could not reach the API. Check your internet connection, VPN or firewall.',
 };

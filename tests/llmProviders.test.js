@@ -80,6 +80,15 @@ test('Gemini provider retries an overloaded model, then uses the next model for 
   assert.deepEqual(calls.filter((c) => c.params).map((c) => c.params.model), ['busy', 'busy', 'spare', 'busy']);
 });
 
+test('Gemini provider treats a 504 deadline like overload and moves to the next model', async () => {
+  const { sdk } = fakeGenAi((params) => {
+    if (params.model === 'slow') throw Object.assign(new Error('Deadline expired before operation could complete.'), { status: 504 });
+    return { text: '{"ok":1}', candidates: [{ finishReason: 'STOP' }] };
+  });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'slow', models: ['fast'], timeoutMs: 1, sdk, retryDelayMs: 0 });
+  assert.equal(await provider.generate(request), '{"ok":1}');
+});
+
 test('Gemini provider does not switch models on auth/quota errors (backup key handles those)', async () => {
   const { sdk, calls } = fakeGenAi(() => { throw Object.assign(new Error('quota'), { status: 429 }); });
   const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk, retryDelayMs: 0 });

@@ -31,8 +31,8 @@ function geminiThinkingConfig(model) {
 
 /** True when Google says the model doesn't exist or is retired for this key. */
 const isModelUnavailable = (error) => error?.status === 404;
-/** True when the model is temporarily overloaded (worth retrying / switching model). */
-const isOverloaded = (error) => error?.status === 503 || error?.status === 500;
+/** Temporary server-side trouble (error, overload, deadline): retry / switch model. */
+const isOverloaded = (error) => [500, 503, 504].includes(error?.status);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -80,7 +80,7 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
   /**
    * Model resilience, in order:
    *  - 404 (retired / not enabled for this key): skip that model permanently.
-   *  - 503 (overloaded): retry the same model once after a short pause, then
+   *  - 500/503/504 (server error, overloaded, deadline expired): retry the same model once after a short pause, then
    *    try the next model for this request only; the preferred model is tried
    *    first again next time, since overload is temporary.
    * Anything else (bad key, quota) is thrown so the backup key can be tried.
