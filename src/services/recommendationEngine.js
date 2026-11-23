@@ -328,6 +328,29 @@ function summariseImpact(alternatives) {
 }
 
 /**
+ * A short, plain-text message a family can forward to a building, school or
+ * neighbourhood group, so one person's plan protects the wider community.
+ * Contains no personal household details.
+ */
+function buildCommunityAlert(plan, air, city) {
+  const { risk } = plan;
+  const place = air.location?.name || city;
+  const window = air.forecast?.cleanestWindow;
+  const lines = [`Air alert for ${place}: AQI ${risk.aqi} (${risk.category}).`];
+  if (window) lines.push(`Cleanest time today: ${hhmm(window.start)}–${hhmm(window.end)} — best for airing homes and outdoor play.`);
+  if (air.forecast?.worstHour) lines.push(`Worst around ${hhmm(air.forecast.worstHour.time)} — keep windows shut.`);
+  if (risk.level >= 3) {
+    lines.push('Kids, elders and anyone with asthma: stay indoors where possible; N95 masks outside.');
+  } else if (risk.level === 2) {
+    lines.push('Sensitive groups: limit outdoor exertion; N95 masks near traffic.');
+  } else {
+    lines.push('Air is acceptable — a good day to ventilate.');
+  }
+  lines.push('Please avoid burning leaves or waste, share rides, and check on elderly neighbours. 🌱');
+  return lines.join('\n');
+}
+
+/**
  * Main entry point.
  * @param {object} profile validated profile
  * @param {{aqi:number, forecast?:object}} air air-quality reading
@@ -353,4 +376,5 @@ module.exports = {
   buildAlternatives,
   summariseImpact,
   weeklyCommuteKm,
+  buildCommunityAlert,
 };

@@ -9,7 +9,22 @@ AirWise is a GenAI-powered assistant for families and communities living through
 - recommends **sustainable alternatives** (commute, heating, cooking, community action),
 - and **puts a number on the impact** of each choice: how much exposure drops (%), how much CO₂ is avoided (kg/week) and how much exhaust PM2.5 is avoided (g/week).
 
+It also produces a **shareable community alert** with no personal details. You can forward it to a building, school or neighbourhood group, so one family's plan protects the people around them.
+
 Claude writes a short briefing from these results, lists the household's top three actions and answers the user's own question in plain language.
+
+---
+
+## How it maps to the evaluation criteria
+
+| Criterion | What we did | Where |
+|---|---|---|
+| **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A.</li></ul> | `recommendationEngine.js`, `assistant.js` |
+| **Code quality** | <ul><li>Layered design: routes, services, a pure rule engine and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc on public functions; ESLint (flat config) enforced in CI.</li><li>Small, single-purpose modules.</li></ul> | `src/`, `eslint.config.js` |
+| **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container, `npm audit` and Dependabot.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
+| **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Low-effort LLM call, since it only narrates facts that are already computed.</li><li>No front-end framework (≈10 kB of JS); 5 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
+| **Testing** | <ul><li>**53 unit/API tests** (~98% line coverage), fully offline.</li><li>**7 browser E2E tests** covering the full flow, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
+| **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
 
 ---
 
@@ -77,7 +92,8 @@ Every number the user sees comes from the engine. The model is only allowed to u
    - Work from home on days rated "Unhealthy" or worse.
    - Clean heating and cooking fuel swaps.
    - Community actions: no open burning, a neighbourhood alert group.
-6. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
+6. **Community alert:** a short message with no personal details. It covers the AQI, the cleanest and worst hours and group-specific advice, and asks neighbours not to burn waste and to check on elderly people. A copy/share button sends it to group chats.
+7. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
 
 ### GenAI layer (`src/services/assistant.js`)
 - **Model:** Claude (`claude-opus-5-5` by default; set `AIRWISE_MODEL` to change it).
@@ -107,12 +123,17 @@ npm start                   # http://localhost:8080
 
 Without `ANTHROPIC_API_KEY`, AirWise still works fully in **rule-based mode**. If the air-quality API is unreachable, open *"Enter AQI manually"* in the form.
 
-### Tests
+### Quality checks
 ```bash
-npm test                # 49 tests, node:test, fully offline (fetch and LLM are faked)
-npm run test:coverage   # ~99% line coverage
+npm run lint            # ESLint
+npm test                # 53 unit + API tests (node:test, fully offline)
+npm run test:coverage   # ~98% line coverage of src/
+npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
+npm run check           # all of the above
 ```
-The tests cover validation, the cache, every branch of the decision engine, the air-quality parsing and caching, LLM success/caching/fallback paths, and the HTTP API end-to-end: security headers, 400/404/413/429/503 handling and the manual-AQI flow.
+- **Unit and API tests:** validation, the cache, every branch of the decision engine and the community alert. Also air-quality parsing and caching, and the LLM success/caching/fallback paths.
+- **HTTP tests:** run end-to-end, covering security headers, gzip, 400/404/413/429/503 handling, the tighter plan rate limit and the manual-AQI flow.
+- **Browser tests:** drive the real UI in Chromium.
 
 ### Docker / Cloud Run
 ```bash
@@ -133,16 +154,19 @@ docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
 ## Security
 - **Input:** allow-list validation for every field (enums, numeric ranges, a Unicode-aware city pattern, 500-character question limit). Unknown fields are dropped.
 - **Headers:** `helmet` with a strict **Content-Security-Policy** (`'self'` only, no inline scripts or styles), `frame-ancestors 'none'`, `nosniff`; `x-powered-by` is disabled.
-- **Abuse limits:** a 10 kB JSON body limit, plus **rate limiting** on `/api` (30 requests/min per IP by default).
+- **Abuse limits:** a 10 kB JSON body limit, plus **rate limiting** on `/api` (30 requests/min per IP by default). The LLM-backed `/api/plan` gets a third of that, to cap cost.
+- **Browser features:** a `Permissions-Policy` header disables camera, microphone, geolocation, payment and USB.
 - **XSS:** the front end renders with `textContent` and DOM APIs only, so model output cannot inject HTML.
 - **Secrets and errors:** the API key stays on the server and is read from the environment. Errors are centralised and only safe messages reach clients. Logs never include prompts or keys.
-- **Container:** non-root user, production-only dependencies. CI runs `npm audit`.
+- **Container:** non-root user with a health check, production-only dependencies.
+- **Supply chain:** CI runs `npm audit`, and Dependabot keeps dependencies patched. See [SECURITY.md](SECURITY.md).
 
 ## Accessibility
 - Semantic landmarks, a skip link, a `<label>` for every control and `fieldset`/`legend` groups.
 - Results sit in an `aria-live` region with `aria-busy`. Focus moves to the results heading, and errors use `role="alert"` and `aria-invalid`.
 - AQI severity is shown **as text as well as colour**. Visible focus rings, 44 px touch targets.
 - Supports `prefers-color-scheme` (dark mode) and `prefers-reduced-motion`. Readable at 200% zoom with a responsive grid.
+- **Verified automatically:** an axe-core WCAG 2.1 AA scan (zero violations in light and dark mode), keyboard-only navigation and a 320 px viewport are all tested in CI.
 
 ## Project structure
 ```
@@ -157,7 +181,8 @@ src/
     assistant.js            # Claude narrative + fallback
   utils/                    # validation, TTL cache, errors
 public/                     # accessible vanilla-JS front end
-tests/                      # node:test suites
+tests/                      # node:test unit + API suites
+tests/e2e/                  # Playwright + axe-core browser tests
 ```
 
 ## Assumptions
@@ -166,5 +191,6 @@ tests/                      # node:test suites
 - **Heating:** weekly CO₂ for heating types is an indicative winter average for a single room.
 - **Exposure reductions:** given as **ranges** drawn from published studies (HEPA/DIY filters in closed rooms, clean-cooking interventions). Real results depend on room size, sealing and behaviour.
 - **Tree equivalent:** about 22 kg CO₂ absorbed per mature tree per year.
+- **Community alert:** it deliberately omits household details (health conditions, fuels, commute), so it is safe to share publicly.
 - **Not medical advice:** the app gives general guidance, and the AI is instructed to send symptom questions to a doctor.
 - **Sensitive members:** a household that reports any of them is treated conservatively.

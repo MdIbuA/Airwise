@@ -117,3 +117,27 @@ test('every recommendation carries an impact explanation', () => {
     assert.ok(['high', 'medium', 'low'].includes(item.priority), item.id);
   }
 });
+
+test('community alert is shareable, forecast-aware and free of household details', () => {
+  const forecast = {
+    cleanestWindow: { start: '2026-11-23T14:00', end: '2026-11-23T15:00', meanPm25: 60 },
+    worstHour: { time: '2026-11-23T21:00', pm25: 260 },
+  };
+  const profile = makeProfile({ hasChildren: true, heating: 'wood_coal', commuteMode: 'car_diesel' });
+  const air = { aqi: 260, forecast, location: { name: 'Delhi' } };
+  const alert = engine.buildCommunityAlert(engine.buildPlan(profile, air), air, 'Delhi');
+  assert.match(alert, /Air alert for Delhi: AQI 260 \(Very Unhealthy\)/);
+  assert.match(alert, /14:00–15:00/);
+  assert.match(alert, /21:00/);
+  assert.match(alert, /stay indoors/);
+  assert.equal(/coal|diesel|children under/i.test(alert), false);
+  assert.ok(alert.length < 600);
+});
+
+test('community alert adapts to moderate and good days without a forecast', () => {
+  const usg = engine.buildCommunityAlert(engine.buildPlan(makeProfile(), { aqi: 120 }), { aqi: 120 }, 'Lahore');
+  const good = engine.buildCommunityAlert(engine.buildPlan(makeProfile(), { aqi: 30 }), { aqi: 30 }, 'Lahore');
+  assert.match(usg, /Sensitive groups: limit outdoor exertion/);
+  assert.match(good, /good day to ventilate/);
+  assert.equal(good.includes('Cleanest time'), false);
+});

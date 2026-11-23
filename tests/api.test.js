@@ -42,6 +42,7 @@ test('API end-to-end', async (t) => {
     assert.match(res.headers.get('content-security-policy'), /default-src 'self'/);
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
     assert.equal(res.headers.get('x-powered-by'), null);
+    assert.match(res.headers.get('permissions-policy'), /geolocation=\(\)/);
   });
 
   await t.test('GET /api/air returns reading with band', async () => {
@@ -75,6 +76,7 @@ test('API end-to-end', async (t) => {
     assert.equal(body.narrative.source, 'rules');
     assert.equal(body.narrative.priorities.length, 3);
     assert.equal(body.air.forecast.cleanestWindow.start, '2026-11-23T14:00');
+    assert.match(body.communityAlert, /^Air alert for Delhi: AQI 312/);
   });
 
   await t.test('POST /api/plan with manual AQI skips the network', async () => {
@@ -112,6 +114,25 @@ test('upstream outage surfaces a friendly 503', async (t) => {
   const res = await postJson(`${srv.base}/api/plan`, { city: 'Delhi' });
   assert.equal(res.status, 503);
   assert.match((await res.json()).error, /unreachable/);
+});
+
+test('responses are gzip-compressed when the client accepts it', async (t) => {
+  const srv = await startServer();
+  t.after(srv.close);
+  const res = await fetch(`${srv.base}/styles.css`, { headers: { 'Accept-Encoding': 'gzip' } });
+  assert.equal(res.headers.get('content-encoding'), 'gzip');
+});
+
+test('plan endpoint has a tighter rate limit than the rest of the API', async (t) => {
+  const srv = await startServer({ rateLimitPerMinute: 6 }); // plan limit = 2
+  t.after(srv.close);
+  const body = { city: 'Delhi', manualAqi: 80 };
+  assert.equal((await postJson(`${srv.base}/api/plan`, body)).status, 200);
+  assert.equal((await postJson(`${srv.base}/api/plan`, body)).status, 200);
+  const limited = await postJson(`${srv.base}/api/plan`, body);
+  assert.equal(limited.status, 429);
+  assert.match((await limited.json()).error, /plan requests/);
+  assert.equal((await fetch(`${srv.base}/api/health`)).status, 200);
 });
 
 test('rate limiter returns 429 after the limit', async (t) => {

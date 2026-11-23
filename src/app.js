@@ -3,11 +3,12 @@
 const path = require('node:path');
 const express = require('express');
 const helmet = require('helmet');
+const compression = require('compression');
 const { rateLimit } = require('express-rate-limit');
 
 const { validateProfile, validateCity, ENUMS } = require('./utils/validation');
 const { AppError } = require('./utils/errors');
-const { buildPlan, classifyAqi } = require('./services/recommendationEngine');
+const { buildPlan, classifyAqi, buildCommunityAlert } = require('./services/recommendationEngine');
 
 /**
  * Builds the Express app. Services are injected so tests can run fully
@@ -35,6 +36,12 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
       },
     }),
   );
+  // Restrict powerful browser features the app never needs.
+  app.use((_req, res, next) => {
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+    next();
+  });
+  app.use(compression()); // gzip JSON + static assets (~70% smaller payloads)
   app.use(express.json({ limit: '10kb' }));
 
   app.use(
@@ -47,6 +54,15 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
       message: { error: 'Too many requests, please slow down.' },
     }),
   );
+
+  // /api/plan may call the LLM, so it gets a tighter per-IP budget to cap cost.
+  const planLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: Math.max(1, Math.ceil(rateLimitPerMinute / 3)),
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many plan requests, please wait a minute.' },
+  });
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -63,7 +79,7 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
     }
   });
 
-  app.post('/api/plan', async (req, res, next) => {
+  app.post('/api/plan', planLimiter, async (req, res, next) => {
     try {
       const profile = validateProfile(req.body);
       let air;
@@ -75,7 +91,7 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
       const plan = buildPlan(profile, air);
       const narrative = await assistant.narrate(plan, profile, air);
       res.set('Cache-Control', 'no-store');
-      res.json({ air, ...plan, narrative });
+      res.json({ air, ...plan, narrative, communityAlert: buildCommunityAlert(plan, air, profile.city) });
     } catch (error) {
       next(error);
     }
@@ -86,7 +102,6 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', index: 'index.html' }));
 
   // Central error handler: only AppError messages reach the client.
-  // eslint-disable-next-line no-unused-vars
   app.use((error, _req, res, _next) => {
     if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Malformed JSON body.' });
     if (error.type === 'entity.too.large') return res.status(413).json({ error: 'Request body too large.' });

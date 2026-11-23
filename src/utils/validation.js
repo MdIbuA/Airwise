@@ -24,6 +24,7 @@ const CITY_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}\s.,'-]*$/u;
 /** Strip control characters and collapse whitespace. */
 function cleanText(value) {
   return String(value)
+    // eslint-disable-next-line no-control-regex -- stripping control chars is the intent
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
