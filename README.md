@@ -96,7 +96,7 @@ Every number the user sees comes from the engine. The model is only allowed to u
 7. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
 
 ### GenAI layer (`src/services/assistant.js`)
-- **Provider:** **Google Gemini** (`gemini-3.8-flash`) via the official `@google/genai` SDK by default. **Claude** (`claude-opus-5-5`) via `@anthropic-ai/sdk` is also supported. Both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
+- **Provider:** **Google Gemini** (`gemini-2.5-flash`) via the official `@google/genai` SDK by default. **Claude** (`claude-opus-5-5`) via `@anthropic-ai/sdk` is also supported. Both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
 - **Structured outputs:** a JSON schema (Gemini `responseJsonSchema`, Claude `output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
 - **Grounded prompt:** the model receives the engine's plan as JSON and must not invent statistics.
 - **Prompt-injection defence:** the user's question goes inside `<user_question>` tags and is labelled as data. Off-topic requests are declined.
@@ -143,7 +143,7 @@ npm run check           # all of the above
 | `GEMINI_API_KEY_BACKUP` (or `GOOGLE_API_KEY_BACKUP`) | No | Failover key, used only if the primary fails |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY_BACKUP` | No | Use Claude instead (picked automatically when no Google key is set) |
 | `AIRWISE_LLM_PROVIDER` | No | `gemini` or `anthropic`, to force a provider |
-| `AIRWISE_MODEL` | No | Model override (defaults: `gemini-3.8-flash`, `claude-opus-5-5`) |
+| `AIRWISE_MODEL` | No | Model override (defaults: `gemini-2.5-flash`, `claude-opus-5-5`) |
 | `PORT` | No | HTTP port (default 8080) |
 | `AIRWISE_RATE_LIMIT` | No | API requests/min per IP (default 30; `/api/plan` gets a third) |
 | `AIRWISE_DISABLE_LLM` | No | `true` forces rule-based mode |

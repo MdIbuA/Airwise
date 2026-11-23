@@ -39,6 +39,13 @@ test('Gemini provider sends system prompt + JSON schema and returns text', async
   assert.equal(params.config.systemInstruction, 'sys');
   assert.equal(params.config.responseMimeType, 'application/json');
   assert.deepEqual(params.config.responseJsonSchema, { type: 'object' });
+  assert.equal(params.config.thinkingConfig, undefined);
+});
+
+test('Gemini 2.5 Flash runs with thinking disabled so JSON is not truncated', async () => {
+  const { sdk, calls } = fakeGenAi(() => ({ text: '{}', candidates: [{ finishReason: 'STOP' }] }));
+  await createGeminiProvider({ apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 1, sdk }).generate(request);
+  assert.deepEqual(calls[1].params.config.thinkingConfig, { thinkingBudget: 0 });
 });
 
 test('Gemini provider maps an invalid-key 400 to 401 so the backup key is tried', async () => {
@@ -77,7 +84,7 @@ test('Anthropic provider uses structured output and rejects refusals', async () 
 test('createProviders builds one labelled provider per key with default models', () => {
   const providers = createProviders({ provider: 'gemini', apiKeys: ['a', 'b'], timeoutMs: 1 });
   assert.deepEqual(providers.map((p) => p.name), ['gemini#1', 'gemini#2']);
-  assert.equal(DEFAULT_MODELS.gemini, 'gemini-3.8-flash');
+  assert.equal(DEFAULT_MODELS.gemini, 'gemini-2.5-flash');
   assert.equal(createProviders({ provider: 'anthropic', apiKeys: ['a'], timeoutMs: 1 })[0].name, 'anthropic#1');
   assert.throws(() => createProviders({ provider: 'nope', apiKeys: [], timeoutMs: 1 }), /Unknown LLM provider/);
 });

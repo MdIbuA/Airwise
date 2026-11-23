@@ -45,6 +45,10 @@ function createGeminiProvider({ apiKey, model, timeoutMs, label = 'gemini', sdk 
             responseJsonSchema: schema,
             temperature: 0.4,
             maxOutputTokens: MAX_OUTPUT_TOKENS,
+            // 2.5 Flash "thinks" by default and thinking tokens count against
+            // maxOutputTokens. Narrating pre-computed facts needs none, so turn
+            // it off: faster, cheaper, and no truncated JSON.
+            ...(/2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
         });
       } catch (error) {
@@ -101,7 +105,7 @@ function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic'
   };
 }
 
-const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-3.8-flash', anthropic: 'claude-opus-5-5' });
+const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-2.5-flash', anthropic: 'claude-opus-5-5' });
 const FACTORIES = Object.freeze({ gemini: createGeminiProvider, anthropic: createAnthropicProvider });
 
 /**
