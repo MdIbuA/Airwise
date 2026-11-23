@@ -1,5 +1,7 @@
 # AirWise: a clean-air coach for smog season 🌫️
 
+![AirWise home screen](docs/screenshots/hero.png)
+
 AirWise is a GenAI-powered assistant for families and communities living through severe winter smog and urban air pollution. You enter your city and a short household profile. AirWise then:
 
 - fetches **live air quality and today's hourly PM2.5 forecast** for that place,
@@ -12,6 +14,50 @@ AirWise is a GenAI-powered assistant for families and communities living through
 It also produces a **shareable community alert** with no personal details. You can forward it to a building, school or neighbourhood group, so one family's plan protects the people around them.
 
 **Google Gemini** (or Claude, if configured) writes a short briefing from these results, lists the household's top three actions and answers the user's own question in plain language.
+
+---
+
+## Screenshots
+
+> Captured from the running app (`npm start`) for a sample Delhi household: children and older adults at home, a 15 km petrol-car commute and a coal heater.
+> - **Air data:** a recorded hazardous-day sample (AQI 312), the same fixture the tests use, because live Open-Meteo access was blocked in the capture environment.
+> - **Briefing:** shown in rule-based mode. With a Gemini key set, the same card is titled "AI coach briefing" and also answers the user's question.
+
+**1. Stepped household form**: chip toggles for sensitive members, plus commute, heating and cooking choices.
+
+![Household form](docs/screenshots/form.png)
+
+**2. Air quality at a glance**:
+- An AQI ring gauge. The band colour is always paired with its name.
+- PM2.5 against the WHO guideline, and the personal risk score.
+- A day strip with today's cleanest window in green and the worst hour in red.
+
+![AQI panel](docs/screenshots/aqi-panel.png)
+
+**3. Coach briefing**: the top three actions for this household, each with its direct impact.
+
+![Coach briefing](docs/screenshots/briefing.png)
+
+**4. Impact and a smog-proofed day**:
+- Avoidable CO₂ and its tree equivalent.
+- A routine from morning to night.
+
+![Impact tiles and daily routine](docs/screenshots/impact-routine.png)
+
+**5. Sustainable alternatives**: prioritised swaps with quantified exposure, CO₂ and PM2.5 reductions.
+
+![Sustainable alternatives](docs/screenshots/alternatives.png)
+
+**6. Community alert**: a shareable message with no personal details, for building, school or neighbourhood groups.
+
+![Community alert](docs/screenshots/community.png)
+
+<details>
+<summary><strong>Mobile view</strong> (390 px)</summary>
+
+<img src="docs/screenshots/mobile.png" alt="AirWise results on a phone" width="320">
+
+</details>
 
 ---
 
@@ -207,6 +253,7 @@ src/
     llmProviders.js         # Gemini + Claude adapters (same interface)
   utils/                    # validation, TTL cache, errors
 public/                     # accessible vanilla-JS front end
+docs/screenshots/           # README images (captured from the running app)
 tests/                      # node:test unit + API suites
 tests/e2e/                  # Playwright + axe-core browser tests
 ```

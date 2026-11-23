@@ -52,8 +52,13 @@ function assessRisk(profile, aqi) {
   };
 }
 
+/** ['a'] -> 'a'; ['a','b'] -> 'a and b'; ['a','b','c'] -> 'a, b and c'. */
+function joinWithAnd(items) {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
 function buildHeadline(band, effectiveLevel, groups) {
-  const who = groups.length ? ` for a household with ${groups.join(', ')}` : '';
+  const who = groups.length ? ` for a household with ${joinWithAnd(groups)}` : '';
   if (effectiveLevel >= 4) return `Air is ${band.label.toLowerCase()} — treat today as a stay-indoors, clean-room day${who}.`;
   if (effectiveLevel === 3) return `Air is ${band.label.toLowerCase()} — limit time outside and protect indoor air${who}.`;
   if (effectiveLevel === 2) return `Air is ${band.label.toLowerCase()} — sensitive members should cut outdoor exertion${who}.`;

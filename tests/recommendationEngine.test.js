@@ -141,3 +141,10 @@ test('community alert adapts to moderate and good days without a forecast', () =
   assert.match(good, /good day to ventilate/);
   assert.equal(good.includes('Cleanest time'), false);
 });
+
+test('headline lists sensitive groups in natural language', () => {
+  const two = engine.assessRisk(makeProfile({ hasChildren: true, hasElderly: true }), 200);
+  const three = engine.assessRisk(makeProfile({ hasChildren: true, hasElderly: true, isPregnant: true }), 200);
+  assert.match(two.headline, /household with children and older adults\./);
+  assert.match(three.headline, /children, older adults and pregnancy\./);
+});
