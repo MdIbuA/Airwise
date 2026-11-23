@@ -107,22 +107,50 @@ function isValidNarrative(value) {
 }
 
 /**
- * @param {{ enabled: boolean, model: string, timeoutMs?: number, ttlMs?: number,
- *           client?: object, logger?: Console }} options
- *   `client` may be injected (tests); otherwise the Anthropic SDK is loaded lazily.
+ * Errors worth retrying with the backup key: bad/revoked key (401/403),
+ * quota or rate limit on that key (429), overload/server errors (5xx) and
+ * network failures (no status). A 400 would fail identically, so it is not.
  */
-function createAssistant({ enabled, model, timeoutMs = 30000, ttlMs = 900000, client, logger = console }) {
-  const cache = new TtlCache({ ttlMs, maxEntries: 300 });
-  let sdkClient = client;
+function shouldFailover(error) {
+  const status = error?.status;
+  return status === undefined || status === 401 || status === 403 || status === 429 || status >= 500;
+}
 
-  function getClient() {
-    if (!sdkClient) {
+/**
+ * @param {{ enabled: boolean, model: string, apiKeys?: string[], timeoutMs?: number,
+ *           ttlMs?: number, clients?: object[], logger?: Console }} options
+ *   `clients` may be injected (tests); otherwise one Anthropic SDK client is
+ *   created lazily per API key, in priority order (primary, then backup).
+ */
+function createAssistant({ enabled, model, apiKeys = [], timeoutMs = 30000, ttlMs = 900000, clients, logger = console }) {
+  const cache = new TtlCache({ ttlMs, maxEntries: 300 });
+  let sdkClients = clients;
+
+  function getClients() {
+    if (!sdkClients) {
       const Anthropic = require('@anthropic-ai/sdk');
       const Ctor = Anthropic.default || Anthropic;
-      // Reads ANTHROPIC_API_KEY from the environment; never sent to the browser.
-      sdkClient = new Ctor({ timeout: timeoutMs, maxRetries: 1 });
+      // Keys stay server-side; never sent to the browser or written to logs.
+      const keys = apiKeys.length ? apiKeys : [undefined]; // undefined -> SDK reads env
+      sdkClients = keys.map((apiKey) => new Ctor({ apiKey, timeout: timeoutMs, maxRetries: 1 }));
     }
-    return sdkClient;
+    return sdkClients;
+  }
+
+  /** Tries each client in order, moving to the next only on retryable errors. */
+  async function createWithFailover(params) {
+    const all = getClients();
+    let lastError;
+    for (let i = 0; i < all.length; i += 1) {
+      try {
+        return await all[i].beta.messages.create(params);
+      } catch (error) {
+        lastError = error;
+        if (!shouldFailover(error) || i === all.length - 1) break;
+        logger.warn(`[assistant] key #${i + 1} failed (${error.status || 'network'}), trying backup key`);
+      }
+    }
+    throw lastError;
   }
 
   async function callModel(payload, question) {
@@ -131,7 +159,7 @@ function createAssistant({ enabled, model, timeoutMs = 30000, ttlMs = 900000, cl
       `<user_question>${question || ''}</user_question>\n\n` +
       'Write the briefing as JSON matching the schema.';
 
-    const response = await getClient().beta.messages.create({
+    const response = await createWithFailover({
       model,
       max_tokens: 2000,
       // Server-side fallback keeps answers flowing if the primary model declines.
@@ -177,4 +205,4 @@ function createAssistant({ enabled, model, timeoutMs = 30000, ttlMs = 900000, cl
   return { narrate };
 }
 
-module.exports = { createAssistant, templateNarrative, buildPromptPayload, isValidNarrative, OUTPUT_SCHEMA, SYSTEM_PROMPT };
+module.exports = { createAssistant, shouldFailover, templateNarrative, buildPromptPayload, isValidNarrative, OUTPUT_SCHEMA, SYSTEM_PROMPT };

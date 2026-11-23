@@ -12,9 +12,12 @@ const toInt = (value, fallback) => {
 const config = Object.freeze({
   port: toInt(process.env.PORT, 8080),
   nodeEnv: process.env.NODE_ENV || 'development',
-  // The Anthropic SDK reads ANTHROPIC_API_KEY itself; we only check presence
-  // so the app can degrade gracefully to the rule-based narrative.
-  llmEnabled: Boolean(process.env.ANTHROPIC_API_KEY) && process.env.AIRWISE_DISABLE_LLM !== 'true',
+  // Primary key plus an optional backup key used for automatic failover.
+  // Without any key the app degrades gracefully to the rule-based narrative.
+  apiKeys: [process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_API_KEY_BACKUP].filter(Boolean),
+  llmEnabled:
+    Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_BACKUP) &&
+    process.env.AIRWISE_DISABLE_LLM !== 'true',
   llmModel: process.env.AIRWISE_MODEL || 'claude-opus-5-5',
   llmTimeoutMs: toInt(process.env.AIRWISE_LLM_TIMEOUT_MS, 30000),
   httpTimeoutMs: toInt(process.env.AIRWISE_HTTP_TIMEOUT_MS, 6000),

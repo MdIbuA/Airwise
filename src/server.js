@@ -14,6 +14,7 @@ const app = createApp({
   assistant: createAssistant({
     enabled: config.llmEnabled,
     model: config.llmModel,
+    apiKeys: config.apiKeys,
     timeoutMs: config.llmTimeoutMs,
     ttlMs: config.planTtlMs,
   }),
@@ -21,7 +22,7 @@ const app = createApp({
 });
 
 const server = app.listen(config.port, () => {
-  console.log(`AirWise listening on http://localhost:${config.port} (AI narrative: ${config.llmEnabled ? 'on' : 'off, rule-based'})`);
+  console.log(`AirWise listening on http://localhost:${config.port} (AI narrative: ${config.llmEnabled ? `on, ${config.apiKeys.length} key(s)` : 'off, rule-based'})`);
 });
 
 // Graceful shutdown for containers (Cloud Run / Docker send SIGTERM).
