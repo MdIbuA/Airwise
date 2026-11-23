@@ -65,6 +65,34 @@ test('Gemini provider falls back to the next model on 404 and remembers it', asy
   assert.deepEqual(tried, ['retired-model', 'good-model', 'good-model']);
 });
 
+test('Gemini provider retries an overloaded model, then uses the next model for that request only', async () => {
+  let busyCalls = 0;
+  const { sdk, calls } = fakeGenAi((params) => {
+    if (params.model === 'busy' && busyCalls++ < 2) {
+      throw Object.assign(new Error('This model is currently experiencing high demand.'), { status: 503 });
+    }
+    return { text: `{"m":"${params.model}"}`, candidates: [{ finishReason: 'STOP' }] };
+  });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'busy', models: ['spare'], timeoutMs: 1, sdk, retryDelayMs: 0 });
+  assert.equal(await provider.generate(request), '{"m":"spare"}');
+  assert.equal(provider.model, 'busy'); // overload is temporary: not sticky
+  assert.equal(await provider.generate(request), '{"m":"busy"}'); // recovered
+  assert.deepEqual(calls.filter((c) => c.params).map((c) => c.params.model), ['busy', 'busy', 'spare', 'busy']);
+});
+
+test('Gemini provider does not switch models on auth/quota errors (backup key handles those)', async () => {
+  const { sdk, calls } = fakeGenAi(() => { throw Object.assign(new Error('quota'), { status: 429 }); });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk, retryDelayMs: 0 });
+  await assert.rejects(provider.generate(request), (error) => error.status === 429);
+  assert.equal(calls.filter((c) => c.params).length, 1);
+});
+
+test('Gemini provider surfaces the last error when every model is overloaded', async () => {
+  const { sdk } = fakeGenAi(() => { throw Object.assign(new Error('busy'), { status: 503 }); });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk, retryDelayMs: 0 });
+  await assert.rejects(provider.generate(request), (error) => error.status === 503);
+});
+
 test('Gemini provider surfaces 404 when every model is unavailable', async () => {
   const { sdk } = fakeGenAi(() => { throw Object.assign(new Error('gone'), { status: 404 }); });
   const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk });

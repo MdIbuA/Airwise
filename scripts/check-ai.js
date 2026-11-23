@@ -16,8 +16,28 @@ const HINTS = {
   403: 'Key lacks permission. Enable the "Generative Language API" for the key\'s Google Cloud project, or remove API restrictions on the key.',
   404: 'None of the models tried is available to this key. Set AIRWISE_MODEL in .env to a model named in the message above (e.g. the one Google recommends).',
   429: 'Quota or rate limit reached on this key. Wait, or use the backup key / a billing-enabled project.',
+  500: 'Google had a temporary server error. Try again in a few minutes.',
+  503: 'Google\'s servers for every model tried are overloaded right now (temporary). Try again in a few minutes; the app retries and switches models automatically.',
   network: 'Could not reach the API. Check your internet connection, VPN or firewall.',
 };
+
+/** Prints the Gemini text models this key can use (helps pick AIRWISE_MODEL). */
+async function listGeminiModels(apiKey) {
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json();
+    const names = (data.models || [])
+      .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map((m) => m.name.replace('models/', ''))
+      .filter((n) => /^gemini/.test(n) && !/(tts|image|audio|live|embedding)/.test(n));
+    if (names.length) console.log(`\nText models your key can use: ${names.join(', ')}`);
+  } catch {
+    /* listing is best-effort */
+  }
+}
 
 async function main() {
   const model = config.llmModel || DEFAULT_MODELS[config.llmProvider];
@@ -51,6 +71,7 @@ async function main() {
       console.log(`  → ${HINTS[status] || 'See the message above.'}`);
     }
   }
+  if (config.llmProvider === 'gemini') await listGeminiModels(config.apiKeys[0]);
   console.log(working ? `\nAI is ready (${working}/${providers.length} key(s) working). Restart the server if it is running.` : '\nNo key works, so the app will use rule-based briefings.');
   if (!working) process.exitCode = 1;
 }

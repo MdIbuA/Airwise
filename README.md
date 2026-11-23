@@ -144,7 +144,9 @@ Every number the user sees comes from the engine. The model is only allowed to u
 7. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
 
 ### GenAI layer (`src/services/assistant.js`)
-- **Provider:** **Google Gemini** (`gemini-3.8-flash`) via the official `@google/genai` SDK by default. If Google reports a model as retired or unavailable for your key (HTTP 404), AirWise automatically moves to the next model in its list and keeps using it. **Claude** (`claude-opus-5-5`) via `@anthropic-ai/sdk` is also supported. Both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
+- **Provider:** **Google Gemini** (`gemini-3.8-flash`) via the official `@google/genai` SDK by default. It handles model problems automatically:
+  - **Retired or unavailable model (HTTP 404):** AirWise moves to the next model in its list (`gemini-3.8-flash` → `3.8-flash-lite` → `2.5-flash` → `2.5-flash-lite`) and keeps using it.
+  - **Overloaded model (HTTP 503):** AirWise retries once, then answers that request with the next model. Next time it goes back to the preferred model. **Claude** (`claude-opus-5-5`) via `@anthropic-ai/sdk` is also supported. Both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
 - **Structured outputs:** a JSON schema (Gemini `responseJsonSchema`, Claude `output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
 - **Grounded prompt:** the model receives the engine's plan as JSON and must not invent statistics.
 - **Prompt-injection defence:** the user's question goes inside `<user_question>` tags and is labelled as data. Off-topic requests are declined.
@@ -199,7 +201,7 @@ npm run check:ai        # live test of your Gemini/Claude keys
 ```bash
 npm run check:ai
 ```
-This sends one tiny test request per configured key. It reports whether each key works and, if one doesn't, the reason with a fix: key rejected, API not enabled, quota reached, model not found or network blocked. Keys are never printed. When AI is unavailable, the app shows a rule-based briefing, and the server log explains why.
+This sends one tiny test request per configured key. It reports whether each key works and, if one doesn't, the reason with a fix: key rejected, API not enabled, quota reached, model not found or overloaded, or network blocked. It also lists the Gemini text models your key can use. Keys are never printed. When AI is unavailable, the app shows a rule-based briefing, and the server log explains why.
 
 ### Environment variables
 | Variable | Required | Purpose |

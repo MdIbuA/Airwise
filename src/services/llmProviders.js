@@ -31,6 +31,9 @@ function geminiThinkingConfig(model) {
 
 /** True when Google says the model doesn't exist or is retired for this key. */
 const isModelUnavailable = (error) => error?.status === 404;
+/** True when the model is temporarily overloaded (worth retrying / switching model). */
+const isOverloaded = (error) => error?.status === 503 || error?.status === 500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Google Gemini via the official @google/genai SDK, with JSON-schema
@@ -38,7 +41,7 @@ const isModelUnavailable = (error) => error?.status === 404;
  * reports a model as unavailable (404, e.g. retired for new users), the next
  * one is tried and remembered, so a model retirement can't silently turn AI off.
  */
-function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemini', sdk }) {
+function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemini', sdk, retryDelayMs = 800 }) {
   const chain = [...new Set([model, ...(models || [])].filter(Boolean))];
   let active = 0;
   let client;
@@ -74,6 +77,34 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
     }
   }
 
+  /**
+   * Model resilience, in order:
+   *  - 404 (retired / not enabled for this key): skip that model permanently.
+   *  - 503 (overloaded): retry the same model once after a short pause, then
+   *    try the next model for this request only; the preferred model is tried
+   *    first again next time, since overload is temporary.
+   * Anything else (bad key, quota) is thrown so the backup key can be tried.
+   */
+  async function callWithFallback(request) {
+    let lastError;
+    for (let i = active; i < chain.length; i += 1) {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return await callModel(chain[i], request);
+        } catch (error) {
+          lastError = error;
+          if (isModelUnavailable(error)) {
+            if (i === active && active < chain.length - 1) active += 1;
+            break; // next model
+          }
+          if (!isOverloaded(error)) throw error;
+          if (attempt === 0) await sleep(retryDelayMs);
+        }
+      }
+    }
+    throw lastError;
+  }
+
   return {
     name: label,
     /** The model currently in use (after any fallback). */
@@ -81,19 +112,7 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
       return chain[active];
     },
     async generate(request) {
-      let response;
-      for (;;) {
-        try {
-          response = await callModel(chain[active], request);
-          break;
-        } catch (error) {
-          if (isModelUnavailable(error) && active < chain.length - 1) {
-            active += 1; // sticky: later calls start from the working model
-            continue;
-          }
-          throw error;
-        }
-      }
+      const response = await callWithFallback(request);
       const finishReason = response?.candidates?.[0]?.finishReason;
       if (finishReason && !['STOP', 'FINISH_REASON_UNSPECIFIED'].includes(finishReason)) {
         throw outputError(`Gemini stopped early: ${finishReason}`);
@@ -144,7 +163,8 @@ function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic'
 
 const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-3.8-flash', anthropic: 'claude-opus-5-5' });
 /** Tried in order after the chosen model if Google reports it unavailable. */
-const GEMINI_FALLBACK_MODELS = Object.freeze(['gemini-3.8-flash', 'gemini-2.5-flash']);
+// Models that don't exist for a key return 404 and are skipped automatically.
+const GEMINI_FALLBACK_MODELS = Object.freeze(['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
 const FACTORIES = Object.freeze({ gemini: createGeminiProvider, anthropic: createAnthropicProvider });
 
 /**
