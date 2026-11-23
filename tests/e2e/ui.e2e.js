@@ -69,6 +69,8 @@ test('AirWise UI', async (t) => {
     assert.match(text, /Switch your car commute/);
     assert.match(text, /Cleanest window today: 14:00–15:00/);
     assert.match(await page.locator('#community-alert').innerText(), /Air alert for Delhi: AQI 312/);
+    // Loading skeleton must disappear once results are shown.
+    assert.equal(await page.locator('#loading').isVisible(), false);
     assert.equal(text.includes('null'), false);
     assert.equal(text.includes('undefined'), false);
     // Focus moves to the results heading for screen-reader and keyboard users.

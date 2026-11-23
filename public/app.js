@@ -2,13 +2,18 @@
 
 /**
  * AirWise front end. All server data is rendered with textContent / DOM APIs
- * (never innerHTML), so model or API output cannot inject markup.
+ * (never innerHTML), so model or API output cannot inject markup. Dynamic
+ * styling goes through the CSSOM (element.style / SVG attributes), which the
+ * strict Content-Security-Policy allows.
  */
 (() => {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
   const form = document.getElementById('profile-form');
   const submitBtn = document.getElementById('submit-btn');
+  const submitLabel = submitBtn.querySelector('.btn__label');
   const formError = document.getElementById('form-error');
   const results = document.getElementById('results');
+  const loading = document.getElementById('loading');
 
   /** Small element factory: el('p', { className: 'x' }, 'text', child). */
   function el(tag, props = {}, ...children) {
@@ -21,110 +26,257 @@
     return node;
   }
 
+  /** Decorative icon from the inline sprite. */
+  function icon(name) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const use = document.createElementNS(SVG_NS, 'use');
+    use.setAttribute('href', `#i-${name}`);
+    svg.append(use);
+    return svg;
+  }
+
   /** replaceChildren() would render null as the text "null", so drop falsy nodes. */
   function setChildren(parent, ...children) {
     parent.replaceChildren(...children.filter((child) => child !== null && child !== undefined && child !== false));
   }
 
-  function badge(priority) {
-    return el('span', { className: `badge ${priority}` }, `${priority} priority`);
+  const formatTime = (iso) => (iso ? iso.slice(11, 16) : '');
+  const hourOf = (iso) => Number(iso.slice(11, 13)) + Number(iso.slice(14, 16)) / 60;
+  const bandColor = (level) => `var(--band-${Math.max(0, Math.min(5, level))})`;
+
+  /** Animates a number from 0 to `to` (instantly when reduced motion is on). */
+  function countUp(node, to, { decimals = 0, duration = 1100 } = {}) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const format = (v) => v.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+    if (reduce || !Number.isFinite(to)) {
+      node.textContent = format(to);
+      return;
+    }
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      node.textContent = format(to * eased);
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
-  function formatTime(iso) {
-    return iso ? iso.slice(11, 16) : '';
-  }
+  /* ---------------- AQI panel ---------------- */
 
-  function impactText(impact) {
-    const parts = [];
-    if (Array.isArray(impact.exposureReductionPct)) {
-      parts.push(`Exposure ↓ ${impact.exposureReductionPct[0]}–${impact.exposureReductionPct[1]}%`);
-    }
-    if (Number.isFinite(impact.co2KgPerWeek) && impact.co2KgPerWeek > 0) {
-      parts.push(`CO₂ ↓ ${impact.co2KgPerWeek} kg/week`);
-    }
-    if (Number.isFinite(impact.pm25GramsPerWeek) && impact.pm25GramsPerWeek > 0) {
-      parts.push(`Exhaust PM2.5 ↓ ${impact.pm25GramsPerWeek} g/week`);
-    }
-    return parts;
-  }
+  /** 270° ring gauge on a 0–500 AQI scale. Colour always paired with a text label. */
+  function buildGauge(aqi, level) {
+    const size = 200;
+    const r = 82;
+    const circumference = 2 * Math.PI * r;
+    const arc = circumference * 0.75;
+    const fraction = Math.min(1, Math.max(0, aqi / 500));
 
-  function renderItems(listId, items) {
-    const list = document.getElementById(listId);
-    list.replaceChildren(
-      ...items.map((item) => {
-        const metrics = impactText(item.impact);
-        return el(
-          'li',
-          {},
-          el('h4', {}, item.title, ' ', badge(item.priority)),
-          el('p', {}, item.detail),
-          el(
-            'p',
-            { className: 'impact' },
-            el('strong', {}, 'Impact: '),
-            metrics.length ? `${metrics.join(' · ')}. ` : '',
-            item.impact.explanation,
-          ),
-        );
-      }),
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+    svg.setAttribute('aria-hidden', 'true');
+    const ring = (cls) => {
+      const c = document.createElementNS(SVG_NS, 'circle');
+      c.setAttribute('cx', size / 2);
+      c.setAttribute('cy', size / 2);
+      c.setAttribute('r', r);
+      c.setAttribute('fill', 'none');
+      c.setAttribute('stroke-width', '16');
+      c.setAttribute('stroke-linecap', 'round');
+      c.setAttribute('stroke-dasharray', `${arc} ${circumference}`);
+      c.setAttribute('transform', `rotate(135 ${size / 2} ${size / 2})`);
+      c.setAttribute('class', cls);
+      return c;
+    };
+    const track = ring('gauge__track');
+    const value = ring('gauge__value');
+    value.style.strokeDashoffset = String(arc);
+    svg.append(track, value);
+    // Animate after insertion.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      value.style.strokeDashoffset = String(arc * (1 - fraction));
+    }));
+
+    const num = el('span', { className: 'gauge__num' }, '0');
+    countUp(num, aqi);
+    const wrap = el(
+      'div',
+      { className: 'gauge' },
+      svg,
+      el('div', { className: 'gauge__center' }, el('span', { className: 'gauge__label' }, 'US AQI'), num, el('span', { className: 'gauge__scale' }, 'of 500')),
     );
+    wrap.style.setProperty('--band-color', bandColor(level));
+    return wrap;
+  }
+
+  function meter(label, valueText, percent, extraClass = '') {
+    const fill = el('div', { className: `meter__fill ${extraClass}` });
+    const pct = Math.max(2, Math.min(100, percent));
+    // Keep gradient colours tied to the absolute 0–100 scale, not the fill width.
+    if (extraClass) fill.style.backgroundSize = `${(100 / pct) * 100}% 100%`;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fill.style.width = `${pct}%`;
+    }));
+    const bar = el('div', { className: 'meter__bar' }, fill);
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', `${label}: ${valueText}`);
+    return el('div', { className: 'meter' }, el('div', { className: 'meter__head' }, el('span', {}, label), el('strong', {}, valueText)), bar);
+  }
+
+  /** 06:00–22:00 strip with the cleanest forecast window and worst hour. */
+  function buildDayStrip(forecast) {
+    if (!forecast?.cleanestWindow) return null;
+    const START = 6;
+    const SPAN = 16;
+    const pos = (h) => `${((Math.min(22, Math.max(START, h)) - START) / SPAN) * 100}%`;
+    const win = forecast.cleanestWindow;
+    const windowEl = el('div', { className: 'daystrip__window' });
+    windowEl.style.left = pos(hourOf(win.start));
+    windowEl.style.width = `calc(${pos(hourOf(win.end) + 1)} - ${pos(hourOf(win.start))})`;
+    const bar = el('div', { className: 'daystrip__bar' }, windowEl);
+    if (forecast.worstHour) {
+      const worst = el('div', { className: 'daystrip__worst' });
+      worst.style.left = pos(hourOf(forecast.worstHour.time));
+      bar.append(worst);
+    }
+    bar.setAttribute('aria-hidden', 'true');
+    const ticks = el('div', { className: 'daystrip__ticks' }, ...['06:00', '10:00', '14:00', '18:00', '22:00'].map((t) => el('span', {}, t)));
+    ticks.setAttribute('aria-hidden', 'true');
+
+    const caption = el(
+      'p',
+      { className: 'daystrip__caption' },
+      el('strong', {}, `Cleanest window today: ${formatTime(win.start)}–${formatTime(win.end)}`),
+      ` (≈${win.meanPm25} µg/m³)`,
+      forecast.worstHour ? ` · Worst hour: ${formatTime(forecast.worstHour.time)} (≈${forecast.worstHour.pm25} µg/m³)` : '',
+    );
+    return el('div', { className: 'daystrip' }, bar, ticks, caption);
   }
 
   function renderAqi(data) {
     const card = document.getElementById('aqi-card');
     const { air, risk } = data;
-    card.style.setProperty('--band', risk.color);
+    card.style.setProperty('--band-color', bandColor(risk.level));
     const place = [air.location?.name, air.location?.region, air.location?.country].filter(Boolean).join(', ');
-    const forecast = air.forecast;
+
+    const bandPill = el('span', { className: 'band-pill' }, el('span', { className: 'band-dot' }), risk.category);
+    bandPill.querySelector('.band-dot').setAttribute('aria-hidden', 'true');
+
+    const meters = [];
+    if (Number.isFinite(air.pm25)) {
+      const times = air.pm25 / 15;
+      meters.push(meter('PM2.5 vs WHO 24-h guideline (15 µg/m³)', `${Math.round(air.pm25)} µg/m³ · ${times.toFixed(1)}×`, (air.pm25 / 250) * 100));
+    }
+    meters.push(meter('Personal risk score', `${risk.personalRiskScore}/100`, risk.personalRiskScore, 'meter__fill--risk'));
+
     setChildren(
       card,
-      el('h3', {}, `Air quality in ${place}`),
-      el('p', { className: 'aqi-value' }, `AQI ${risk.aqi}`),
-      el('p', {}, el('strong', {}, risk.category)),
-      el('p', {}, risk.headline),
-      air.pm25 !== undefined && air.pm25 !== null ? el('p', { className: 'aqi-meta' }, `PM2.5: ${Math.round(air.pm25)} µg/m³ (WHO 24-h guideline: 15)`) : null,
-      forecast?.cleanestWindow
-        ? el('p', { className: 'aqi-meta' }, `Cleanest window today: ${formatTime(forecast.cleanestWindow.start)}–${formatTime(forecast.cleanestWindow.end)} (≈${forecast.cleanestWindow.meanPm25} µg/m³)`)
-        : null,
-      forecast?.worstHour ? el('p', { className: 'aqi-meta' }, `Worst hour: ${formatTime(forecast.worstHour.time)} (≈${forecast.worstHour.pm25} µg/m³)`) : null,
-      el('p', { className: 'aqi-meta' }, `Personal risk score: ${risk.personalRiskScore}/100`),
-      el('p', { className: 'source-note' }, `Source: ${air.source || 'Open-Meteo'}`),
+      buildGauge(risk.aqi, risk.level),
+      el(
+        'div',
+        {},
+        el('p', { className: 'aqi-place' }, icon('pin'), place || 'Your location'),
+        el('h3', { id: 'aqi-heading', className: 'visually-hidden' }, `Air quality: AQI ${risk.aqi}, ${risk.category}`),
+        bandPill,
+        el('p', { className: 'aqi-headline' }, risk.headline),
+        el('div', { className: 'meters' }, ...meters),
+        buildDayStrip(air.forecast),
+        el('p', { className: 'source-note' }, `Source: ${air.source || 'Open-Meteo'}`),
+      ),
     );
   }
+
+  /* ---------------- AI briefing ---------------- */
 
   function renderNarrative(narrative) {
     const card = document.getElementById('narrative-card');
-    const label = narrative.source === 'ai' ? 'AI coach briefing' : 'Coach briefing (rule-based)';
+    const isAi = narrative.source === 'ai';
     setChildren(
       card,
-      el('h3', {}, label),
-      el('p', {}, narrative.summary),
-      el('h4', {}, 'Top 3 actions today'),
-      el(
-        'ol',
-        {},
-        ...narrative.priorities.map((p) => el('li', {}, el('strong', {}, p.action), el('br'), p.impact)),
-      ),
-      narrative.answer ? el('h4', {}, 'Your question') : null,
-      narrative.answer ? el('p', {}, narrative.answer) : null,
+      el('span', { className: 'ai-badge' }, icon('spark'), isAi ? 'AI coach' : 'Coach · rule-based'),
+      el('h3', {}, isAi ? 'AI coach briefing' : 'Coach briefing (rule-based)'),
+      el('p', { className: 'ai-summary' }, narrative.summary),
+      el('h4', { className: 'visually-hidden' }, 'Top 3 actions today'),
+      el('ol', { className: 'top-actions' }, ...narrative.priorities.map((p) => el('li', {}, el('strong', {}, p.action), el('p', {}, p.impact)))),
+      narrative.answer ? el('div', { className: 'answer' }, icon('chat'), el('div', {}, el('strong', {}, 'Your question'), el('p', {}, narrative.answer))) : null,
     );
   }
+
+  /* ---------------- Impact tiles ---------------- */
+
+  function statTile(value, unit, label, decimals = 0) {
+    const num = el('span', {}, '0');
+    countUp(num, value, { decimals });
+    return el('div', { className: 'stat' }, el('span', { className: 'stat__value' }, num, el('span', { className: 'stat__unit' }, unit)), el('span', { className: 'stat__label' }, label));
+  }
+
+  function renderImpact(summary) {
+    const text = document.getElementById('impact-summary');
+    const tiles = document.getElementById('stat-tiles');
+    if (summary.co2KgPerYear > 0) {
+      text.textContent = `Adopting these swaps could avoid ≈${summary.co2KgPerYear} kg CO₂ per year (${summary.co2KgPerWeek} kg/week) — about what ${summary.treeEquivalent} mature trees absorb.`;
+      setChildren(
+        tiles,
+        statTile(summary.co2KgPerYear, 'kg', 'CO₂ avoidable per year'),
+        statTile(summary.co2KgPerWeek, 'kg', 'CO₂ avoidable per week', 1),
+        statTile(summary.treeEquivalent, 'trees', 'Equivalent yearly absorption'),
+      );
+    } else {
+      text.textContent = 'Your current choices are already low-emission — focus on reducing exposure and helping your community.';
+      tiles.replaceChildren();
+    }
+  }
+
+  /* ---------------- Routine & cards ---------------- */
+
+  const SLOT_ICONS = ['sunrise', 'sun', 'sunset', 'moon'];
 
   function renderRoutine(routine) {
     document.getElementById('routine').replaceChildren(
-      ...routine.map((slot) =>
-        el('div', { className: 'routine-slot' }, el('h4', {}, slot.slot), el('ul', {}, ...slot.actions.map((a) => el('li', {}, a)))),
+      ...routine.map((slot, i) => {
+        const iconBox = el('span', { className: 'slot__icon' }, icon(SLOT_ICONS[i % 4]));
+        return el(
+          'li',
+          { className: `slot slot--${i % 4}` },
+          el('div', { className: 'slot__head' }, iconBox, el('h4', {}, slot.slot)),
+          el('ul', {}, ...slot.actions.map((a) => el('li', {}, a))),
+        );
+      }),
+    );
+  }
+
+  function metricChips(impact) {
+    const chips = [];
+    if (Array.isArray(impact.exposureReductionPct)) {
+      chips.push(el('span', { className: 'metric metric--exposure' }, `Exposure ↓ ${impact.exposureReductionPct[0]}–${impact.exposureReductionPct[1]}%`));
+    }
+    if (Number.isFinite(impact.co2KgPerWeek) && impact.co2KgPerWeek > 0) {
+      chips.push(el('span', { className: 'metric' }, `CO₂ ↓ ${impact.co2KgPerWeek} kg/week`));
+    }
+    if (Number.isFinite(impact.pm25GramsPerWeek) && impact.pm25GramsPerWeek > 0) {
+      chips.push(el('span', { className: 'metric' }, `PM2.5 ↓ ${impact.pm25GramsPerWeek} g/week`));
+    }
+    return chips.length ? el('div', { className: 'metrics' }, ...chips) : null;
+  }
+
+  function renderItems(listId, items) {
+    document.getElementById(listId).replaceChildren(
+      ...items.map((item) =>
+        el(
+          'li',
+          { className: 'card' },
+          el('span', { className: `badge ${item.priority}` }, `${item.priority} priority`),
+          el('h4', {}, item.title),
+          el('p', {}, item.detail),
+          el('div', { className: 'card__foot' }, metricChips(item.impact), el('p', { className: 'impact-text' }, el('strong', {}, 'Impact: '), item.impact.explanation)),
+        ),
       ),
     );
   }
 
-  function renderImpactSummary(summary) {
-    const node = document.getElementById('impact-summary');
-    node.textContent =
-      summary.co2KgPerYear > 0
-        ? `Adopting these swaps could avoid ≈${summary.co2KgPerYear} kg CO₂ per year (${summary.co2KgPerWeek} kg/week) — about what ${summary.treeEquivalent} mature trees absorb.`
-        : 'Your current choices are already low-emission — focus on reducing exposure and helping your community.';
-  }
+  /* ---------------- Community alert ---------------- */
 
   function renderCommunityAlert(text) {
     document.getElementById('community-alert').textContent = text;
@@ -157,6 +309,8 @@
     }
   });
 
+  /* ---------------- Form handling ---------------- */
+
   function collectPayload() {
     const data = new FormData(form);
     const payload = {};
@@ -173,6 +327,25 @@
     formError.hidden = false;
   }
 
+  function setBusy(busy) {
+    submitBtn.disabled = busy;
+    submitLabel.textContent = busy ? 'Building your plan…' : 'Get my clean-air plan';
+    results.setAttribute('aria-busy', String(busy));
+    loading.hidden = !busy;
+    if (busy) results.hidden = true;
+  }
+
+  function revealSections() {
+    const blocks = results.querySelectorAll(':scope > *');
+    blocks.forEach((node, i) => {
+      node.classList.remove('reveal');
+      // Restart the animation, staggered.
+      void node.offsetWidth;
+      node.style.animationDelay = `${Math.min(i, 8) * 70}ms`;
+      node.classList.add('reveal');
+    });
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     formError.hidden = true;
@@ -184,10 +357,7 @@
       return;
     }
     city.removeAttribute('aria-invalid');
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Building your plan…';
-    results.setAttribute('aria-busy', 'true');
+    setBusy(true);
 
     try {
       const response = await fetch('/api/plan', {
@@ -198,24 +368,23 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const details = Array.isArray(data.details) ? ` ${data.details.join(' ')}` : '';
-        const hint = response.status >= 500 ? ' You can enter the AQI manually below.' : '';
+        const hint = response.status >= 500 ? ' You can enter the AQI manually in step 4.' : '';
         throw new Error(`${data.error || 'Request failed.'}${details}${hint}`);
       }
+      results.hidden = false;
       renderAqi(data);
       renderNarrative(data.narrative);
+      renderImpact(data.impactSummary);
       renderRoutine(data.routine);
       renderItems('indoor', data.indoorHacks);
-      renderImpactSummary(data.impactSummary);
       renderItems('alternatives', data.alternatives);
       renderCommunityAlert(data.communityAlert);
-      results.hidden = false;
+      revealSections();
       document.getElementById('results-heading').focus();
     } catch (error) {
       showError(error.message || 'Could not reach AirWise. Check your connection and try again.');
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Get my clean-air plan';
-      results.setAttribute('aria-busy', 'false');
+      setBusy(false);
     }
   });
 })();
