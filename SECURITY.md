@@ -13,5 +13,5 @@ Please report it privately through GitHub's **Security → Report a vulnerabilit
 | Abuse / cost blow-up | Per-IP rate limits (tighter on the LLM-backed `/api/plan`); response caching; upstream timeouts |
 | Info disclosure | Central error handler returns generic messages; `x-powered-by` disabled |
 | Clickjacking / feature abuse | `frame-ancestors 'none'`, `Permissions-Policy` disables camera, mic, geolocation, payment, USB |
-| Supply chain | Lockfile + `npm ci`, `npm audit` in CI, Dependabot updates, 5 runtime dependencies |
+| Supply chain | Lockfile + `npm ci`, `npm audit` in CI, 5 runtime dependencies |
 | Container | Non-root user, production-only dependencies |

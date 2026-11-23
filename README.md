@@ -21,7 +21,7 @@ Claude writes a short briefing from these results, lists the household's top thr
 |---|---|---|
 | **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A.</li></ul> | `recommendationEngine.js`, `assistant.js` |
 | **Code quality** | <ul><li>Layered design: routes, services, a pure rule engine and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc on public functions; ESLint (flat config) enforced in CI.</li><li>Small, single-purpose modules.</li></ul> | `src/`, `eslint.config.js` |
-| **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container, `npm audit` and Dependabot.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
+| **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
 | **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Low-effort LLM call, since it only narrates facts that are already computed.</li><li>No front-end framework (≈10 kB of JS); 5 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
 | **Testing** | <ul><li>**53 unit/API tests** (~98% line coverage), fully offline.</li><li>**7 browser E2E tests** covering the full flow, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
 | **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
@@ -159,7 +159,7 @@ docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
 - **XSS:** the front end renders with `textContent` and DOM APIs only, so model output cannot inject HTML.
 - **Secrets and errors:** the API key stays on the server and is read from the environment. Errors are centralised and only safe messages reach clients. Logs never include prompts or keys.
 - **Container:** non-root user with a health check, production-only dependencies.
-- **Supply chain:** CI runs `npm audit`, and Dependabot keeps dependencies patched. See [SECURITY.md](SECURITY.md).
+- **Supply chain:** CI runs `npm audit` on every push. See [SECURITY.md](SECURITY.md).
 
 ## Accessibility
 - Semantic landmarks, a skip link, a `<label>` for every control and `fieldset`/`legend` groups.
