@@ -189,10 +189,17 @@ npm test                # 64 unit + API tests (node:test, fully offline)
 npm run test:coverage   # ~99% line coverage of src/
 npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
 npm run check           # all of the above
+npm run check:ai        # live test of your Gemini/Claude keys
 ```
 - **Unit and API tests:** validation, the cache, every branch of the decision engine and the community alert. Also air-quality parsing and caching, and the LLM success/caching/fallback paths.
 - **HTTP tests:** run end-to-end, covering security headers, gzip, 400/404/413/429/503 handling, the tighter plan rate limit and the manual-AQI flow.
 - **Browser tests:** drive the real UI in Chromium.
+
+### Is the AI working?
+```bash
+npm run check:ai
+```
+This sends one tiny test request per configured key. It reports whether each key works and, if one doesn't, the reason with a fix: key rejected, API not enabled, quota reached, model not found or network blocked. Keys are never printed. When AI is unavailable, the app shows a rule-based briefing, and the server log explains why.
 
 ### Environment variables
 | Variable | Required | Purpose |

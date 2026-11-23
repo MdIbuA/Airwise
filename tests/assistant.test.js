@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAssistant, templateNarrative, buildPromptPayload, shouldFailover } = require('../src/services/assistant');
+const { createAssistant, templateNarrative, buildPromptPayload, shouldFailover, describeError } = require('../src/services/assistant');
 const { buildPlan } = require('../src/services/recommendationEngine');
 const { makeProfile, silentLogger } = require('./helpers');
 
@@ -143,4 +143,12 @@ test('prompt payload contains only plan facts, not raw free text or extra fields
   assert.equal(JSON.stringify(payload).includes('ignore all rules'), false);
   assert.equal(payload.air.aqi, 240);
   assert.ok(Array.isArray(payload.alternatives));
+});
+
+test('describeError extracts the provider message and masks anything key-like', () => {
+  const gemini = Object.assign(new Error('{"error":{"code":400,"message":"API key not valid. Please pass a valid API key."}}'), { status: 401 });
+  assert.equal(describeError(gemini), '401 API key not valid. Please pass a valid API key.');
+  const leaky = Object.assign(new Error('bad key AIzaSyA1234567890abcdef and sk-ant-api03-xyz'), { status: 403 });
+  assert.equal(describeError(leaky), '403 bad key AIza… and sk-ant-…');
+  assert.equal(describeError(new Error('ECONNRESET')), 'network ECONNRESET');
 });

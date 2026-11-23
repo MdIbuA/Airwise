@@ -107,6 +107,27 @@ function isValidNarrative(value) {
 }
 
 /**
+ * Short, log-safe description of an error: status plus the first line of the
+ * provider's message, with anything that looks like an API key masked.
+ */
+function describeError(error) {
+  const raw = String(error?.message || error?.name || 'unknown error');
+  let message = raw;
+  try {
+    // Provider SDKs often embed a JSON body; prefer its human-readable message.
+    message = JSON.parse(raw.slice(raw.indexOf('{')))?.error?.message || raw;
+  } catch {
+    /* not JSON */
+  }
+  const safe = message
+    .split('\n')[0]
+    .replace(/AIza[\w-]{10,}/g, 'AIza…')
+    .replace(/sk-ant-[\w-]+/g, 'sk-ant-…')
+    .slice(0, 180);
+  return `${error?.status ?? 'network'} ${safe}`;
+}
+
+/**
  * Errors worth retrying with the backup key: bad/revoked key (401/403),
  * quota or rate limit on that key (429), overload/server errors (5xx) and
  * network failures (no status). A 400 would fail identically, so it is not.
@@ -135,7 +156,7 @@ function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = con
         lastError = error;
         if (!shouldFailover(error) || i === providers.length - 1) break;
         // Log provider label and status only — never keys or prompts.
-        logger.warn(`[assistant] ${providers[i].name} failed (${error.status || 'network'}), trying backup key`);
+        logger.warn(`[assistant] ${providers[i].name} failed (${describeError(error)}), trying backup key`);
       }
     }
     throw lastError;
@@ -166,7 +187,7 @@ function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = con
       return { ...narrative, source: 'ai' };
     } catch (error) {
       // Log the class of failure only; never log prompts or keys.
-      logger.warn(`[assistant] falling back to rules: ${error.name || 'Error'} ${error.status || ''}`.trim());
+      logger.warn(`[assistant] AI unavailable, using rule-based briefing: ${describeError(error)}`);
       return { ...templateNarrative(plan, profile), source: 'rules' };
     }
   }
@@ -174,4 +195,4 @@ function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = con
   return { narrate };
 }
 
-module.exports = { createAssistant, shouldFailover, templateNarrative, buildPromptPayload, isValidNarrative, OUTPUT_SCHEMA, SYSTEM_PROMPT };
+module.exports = { createAssistant, shouldFailover, describeError, templateNarrative, buildPromptPayload, isValidNarrative, OUTPUT_SCHEMA, SYSTEM_PROMPT };
