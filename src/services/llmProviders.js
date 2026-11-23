@@ -11,17 +11,36 @@
  */
 
 const MAX_OUTPUT_TOKENS = 2000;
+// Gemini counts any thinking tokens against this limit, so leave headroom.
+const GEMINI_MAX_OUTPUT_TOKENS = 4096;
 
 /** Refusal / empty output: 422 so it is NOT retried with the backup key. */
 function outputError(message) {
   return Object.assign(new Error(message), { name: 'OutputError', status: 422 });
 }
 
+/** Per-model thinking settings: narrating pre-computed facts needs little reasoning. */
+function geminiThinkingConfig(model) {
+  // 2.5 Flash thinks by default and thinking tokens count against
+  // maxOutputTokens; disabling it avoids truncated JSON.
+  if (/2\.5-flash/.test(model)) return { thinkingBudget: 0 };
+  // Gemini 3+ uses thinking levels; LOW is fast and plenty for this task.
+  if (/^gemini-[3-9]/.test(model)) return { thinkingLevel: 'LOW' };
+  return undefined;
+}
+
+/** True when Google says the model doesn't exist or is retired for this key. */
+const isModelUnavailable = (error) => error?.status === 404;
+
 /**
  * Google Gemini via the official @google/genai SDK, with JSON-schema
- * constrained output.
+ * constrained output. `models` is a preference-ordered list: if Google
+ * reports a model as unavailable (404, e.g. retired for new users), the next
+ * one is tried and remembered, so a model retirement can't silently turn AI off.
  */
-function createGeminiProvider({ apiKey, model, timeoutMs, label = 'gemini', sdk }) {
+function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemini', sdk }) {
+  const chain = [...new Set([model, ...(models || [])].filter(Boolean))];
+  let active = 0;
   let client;
   const getClient = () => {
     if (!client) {
@@ -31,31 +50,49 @@ function createGeminiProvider({ apiKey, model, timeoutMs, label = 'gemini', sdk 
     return client;
   };
 
+  async function callModel(modelName, { system, user, schema }) {
+    const thinkingConfig = geminiThinkingConfig(modelName);
+    try {
+      return await getClient().models.generateContent({
+        model: modelName,
+        contents: user,
+        config: {
+          systemInstruction: system,
+          responseMimeType: 'application/json',
+          responseJsonSchema: schema,
+          // Google advises keeping Gemini 3+ at its default temperature.
+          ...(/^gemini-[3-9]/.test(modelName) ? {} : { temperature: 0.4 }),
+          maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+          ...(thinkingConfig ? { thinkingConfig } : {}),
+        },
+      });
+    } catch (error) {
+      // Gemini reports an invalid key as HTTP 400; treat it as an auth failure
+      // so the backup key is tried.
+      if (error?.status === 400 && /API[_ ]KEY/i.test(error.message || '')) error.status = 401;
+      throw error;
+    }
+  }
+
   return {
     name: label,
-    async generate({ system, user, schema }) {
+    /** The model currently in use (after any fallback). */
+    get model() {
+      return chain[active];
+    },
+    async generate(request) {
       let response;
-      try {
-        response = await getClient().models.generateContent({
-          model,
-          contents: user,
-          config: {
-            systemInstruction: system,
-            responseMimeType: 'application/json',
-            responseJsonSchema: schema,
-            temperature: 0.4,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-            // 2.5 Flash "thinks" by default and thinking tokens count against
-            // maxOutputTokens. Narrating pre-computed facts needs none, so turn
-            // it off: faster, cheaper, and no truncated JSON.
-            ...(/2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          },
-        });
-      } catch (error) {
-        // Gemini reports an invalid key as HTTP 400; treat it as an auth failure
-        // so the backup key is tried.
-        if (error?.status === 400 && /API[_ ]KEY/i.test(error.message || '')) error.status = 401;
-        throw error;
+      for (;;) {
+        try {
+          response = await callModel(chain[active], request);
+          break;
+        } catch (error) {
+          if (isModelUnavailable(error) && active < chain.length - 1) {
+            active += 1; // sticky: later calls start from the working model
+            continue;
+          }
+          throw error;
+        }
       }
       const finishReason = response?.candidates?.[0]?.finishReason;
       if (finishReason && !['STOP', 'FINISH_REASON_UNSPECIFIED'].includes(finishReason)) {
@@ -105,7 +142,9 @@ function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic'
   };
 }
 
-const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-2.5-flash', anthropic: 'claude-opus-5-5' });
+const DEFAULT_MODELS = Object.freeze({ gemini: 'gemini-3.8-flash', anthropic: 'claude-opus-5-5' });
+/** Tried in order after the chosen model if Google reports it unavailable. */
+const GEMINI_FALLBACK_MODELS = Object.freeze(['gemini-3.8-flash', 'gemini-2.5-flash']);
 const FACTORIES = Object.freeze({ gemini: createGeminiProvider, anthropic: createAnthropicProvider });
 
 /**
@@ -116,8 +155,14 @@ function createProviders({ provider, apiKeys, model, timeoutMs }) {
   const factory = FACTORIES[provider];
   if (!factory) throw new Error(`Unknown LLM provider: ${provider}`);
   return apiKeys.map((apiKey, i) =>
-    factory({ apiKey, model: model || DEFAULT_MODELS[provider], timeoutMs, label: `${provider}#${i + 1}` }),
+    factory({
+      apiKey,
+      model: model || DEFAULT_MODELS[provider],
+      models: provider === 'gemini' ? GEMINI_FALLBACK_MODELS : undefined,
+      timeoutMs,
+      label: `${provider}#${i + 1}`,
+    }),
   );
 }
 
-module.exports = { createProviders, createGeminiProvider, createAnthropicProvider, DEFAULT_MODELS };
+module.exports = { createProviders, createGeminiProvider, createAnthropicProvider, DEFAULT_MODELS, GEMINI_FALLBACK_MODELS };

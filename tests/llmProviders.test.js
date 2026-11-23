@@ -42,6 +42,35 @@ test('Gemini provider sends system prompt + JSON schema and returns text', async
   assert.equal(params.config.thinkingConfig, undefined);
 });
 
+test('Gemini 3+ models use a LOW thinking level', async () => {
+  const { sdk, calls } = fakeGenAi(() => ({ text: '{}', candidates: [{ finishReason: 'STOP' }] }));
+  await createGeminiProvider({ apiKey: 'k', model: 'gemini-3.8-flash', timeoutMs: 1, sdk }).generate(request);
+  assert.deepEqual(calls[1].params.config.thinkingConfig, { thinkingLevel: 'LOW' });
+  assert.equal(calls[1].params.config.temperature, undefined);
+});
+
+test('Gemini provider falls back to the next model on 404 and remembers it', async () => {
+  const { sdk, calls } = fakeGenAi((params) => {
+    if (params.model === 'retired-model') {
+      throw Object.assign(new Error('This model is no longer available to new users.'), { status: 404 });
+    }
+    return { text: '{"ok":1}', candidates: [{ finishReason: 'STOP' }] };
+  });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'retired-model', models: ['retired-model', 'good-model'], timeoutMs: 1, sdk });
+  assert.equal(provider.model, 'retired-model');
+  assert.equal(await provider.generate(request), '{"ok":1}');
+  assert.equal(provider.model, 'good-model');
+  await provider.generate(request);
+  const tried = calls.filter((c) => c.params).map((c) => c.params.model);
+  assert.deepEqual(tried, ['retired-model', 'good-model', 'good-model']);
+});
+
+test('Gemini provider surfaces 404 when every model is unavailable', async () => {
+  const { sdk } = fakeGenAi(() => { throw Object.assign(new Error('gone'), { status: 404 }); });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk });
+  await assert.rejects(provider.generate(request), (error) => error.status === 404);
+});
+
 test('Gemini 2.5 Flash runs with thinking disabled so JSON is not truncated', async () => {
   const { sdk, calls } = fakeGenAi(() => ({ text: '{}', candidates: [{ finishReason: 'STOP' }] }));
   await createGeminiProvider({ apiKey: 'k', model: 'gemini-2.5-flash', timeoutMs: 1, sdk }).generate(request);
@@ -84,7 +113,7 @@ test('Anthropic provider uses structured output and rejects refusals', async () 
 test('createProviders builds one labelled provider per key with default models', () => {
   const providers = createProviders({ provider: 'gemini', apiKeys: ['a', 'b'], timeoutMs: 1 });
   assert.deepEqual(providers.map((p) => p.name), ['gemini#1', 'gemini#2']);
-  assert.equal(DEFAULT_MODELS.gemini, 'gemini-2.5-flash');
+  assert.equal(DEFAULT_MODELS.gemini, 'gemini-3.8-flash');
   assert.equal(createProviders({ provider: 'anthropic', apiKeys: ['a'], timeoutMs: 1 })[0].name, 'anthropic#1');
   assert.throws(() => createProviders({ provider: 'nope', apiKeys: [], timeoutMs: 1 }), /Unknown LLM provider/);
 });

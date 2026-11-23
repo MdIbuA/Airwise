@@ -14,7 +14,7 @@ const { describeError } = require('../src/services/assistant');
 const HINTS = {
   401: 'Key rejected. Re-copy it from aistudio.google.com/apikey (no quotes/spaces), or create a new one.',
   403: 'Key lacks permission. Enable the "Generative Language API" for the key\'s Google Cloud project, or remove API restrictions on the key.',
-  404: 'Model not found for this key. Set AIRWISE_MODEL to a model your key lists (e.g. gemini-2.5-flash).',
+  404: 'None of the models tried is available to this key. Set AIRWISE_MODEL in .env to a model named in the message above (e.g. the one Google recommends).',
   429: 'Quota or rate limit reached on this key. Wait, or use the backup key / a billing-enabled project.',
   network: 'Could not reach the API. Check your internet connection, VPN or firewall.',
 };
@@ -44,7 +44,7 @@ async function main() {
       const text = await provider.generate({ system: 'Reply with JSON only.', user: 'Return {"ok":"yes"}', schema });
       JSON.parse(text);
       working += 1;
-      console.log(`✔ ${label} (${len} chars) works.`);
+      console.log(`✔ ${label} (${len} chars) works with model ${provider.model || model}.`);
     } catch (error) {
       const status = error?.status ?? 'network';
       console.log(`✖ ${label} (${len} chars)${suspicious} failed: ${describeError(error)}`);
