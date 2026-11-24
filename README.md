@@ -1,6 +1,10 @@
 # AirWise: a clean-air coach for smog season 🌫️
 
 [![CI](https://github.com/MdIbuA/Airwise/actions/workflows/ci.yml/badge.svg)](https://github.com/MdIbuA/Airwise/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/live%20demo-airwise--648g.onrender.com-22d3ee)](https://airwise-648g.onrender.com/)
+
+**▶ Try it live: https://airwise-648g.onrender.com/**
+(free hosting: the first visit after a quiet spell can take ~30 s to wake up)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MdIbuA/Airwise)
 
