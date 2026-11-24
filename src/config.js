@@ -36,11 +36,14 @@ const keysByProvider = {
   gemini: [read('GEMINI_API_KEY') || read('GOOGLE_API_KEY'), read('GEMINI_API_KEY_BACKUP') || read('GOOGLE_API_KEY_BACKUP')].filter(Boolean),
   anthropic: [read('ANTHROPIC_API_KEY'), read('ANTHROPIC_API_KEY_BACKUP')].filter(Boolean),
 };
-/** Explicit AIRWISE_LLM_PROVIDER wins; otherwise Gemini unless only a Claude key exists. */
+/**
+ * Explicit AIRWISE_LLM_PROVIDER wins. Otherwise Claude when an Anthropic key
+ * is set (the provider verified in live testing), else Gemini.
+ */
 function pickProvider() {
   const requested = read('AIRWISE_LLM_PROVIDER').toLowerCase();
   if (Object.hasOwn(keysByProvider, requested)) return requested;
-  if (!keysByProvider.gemini.length && keysByProvider.anthropic.length) return 'anthropic';
+  if (keysByProvider.anthropic.length) return 'anthropic';
   return 'gemini';
 }
 const provider = pickProvider();
@@ -48,7 +51,7 @@ const provider = pickProvider();
 const config = Object.freeze({
   port: toInt(process.env.PORT, 8080),
   nodeEnv: process.env.NODE_ENV || 'development',
-  // LLM: Gemini if a Google key is set, otherwise Claude; override with
+  // LLM: Claude if an Anthropic key is set, otherwise Gemini; override with
   // AIRWISE_LLM_PROVIDER. Each provider takes a primary + optional backup key.
   llmProvider: provider,
   apiKeys: keysByProvider[provider],

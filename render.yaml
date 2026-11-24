@@ -15,6 +15,11 @@ services:
       - key: NODE_ENV
         value: production
       # Secrets: Render prompts for these on first deploy (never commit them).
+      # Claude is used when ANTHROPIC_API_KEY is set; Gemini otherwise.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY_BACKUP
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_API_KEY_BACKUP

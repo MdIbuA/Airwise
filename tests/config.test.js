@@ -28,17 +28,19 @@ test('no keys: rule-based mode', () => {
   assert.deepEqual(config.apiKeys, []);
 });
 
-test('Google keys select Gemini with primary + backup order', () => {
-  const config = loadConfig({ GOOGLE_API_KEY: 'g1', GOOGLE_API_KEY_BACKUP: 'g2', ANTHROPIC_API_KEY: 'a1' });
+test('Google keys alone select Gemini with primary + backup order', () => {
+  const config = loadConfig({ GOOGLE_API_KEY: 'g1', GOOGLE_API_KEY_BACKUP: 'g2' });
   assert.equal(config.llmProvider, 'gemini');
   assert.deepEqual(config.apiKeys, ['g1', 'g2']);
   assert.equal(config.llmEnabled, true);
 });
 
-test('only a Claude key selects Anthropic; explicit provider and disable flag win', () => {
-  assert.equal(loadConfig({ ANTHROPIC_API_KEY: 'a1' }).llmProvider, 'anthropic');
-  const forced = loadConfig({ GEMINI_API_KEY: 'g1', ANTHROPIC_API_KEY: 'a1', AIRWISE_LLM_PROVIDER: 'anthropic' });
-  assert.deepEqual(forced.apiKeys, ['a1']);
+test('a Claude key is preferred when both exist; explicit provider and disable flag win', () => {
+  const both = loadConfig({ GEMINI_API_KEY: 'g1', ANTHROPIC_API_KEY: 'a1', ANTHROPIC_API_KEY_BACKUP: 'a2' });
+  assert.equal(both.llmProvider, 'anthropic');
+  assert.deepEqual(both.apiKeys, ['a1', 'a2']);
+  const forced = loadConfig({ GEMINI_API_KEY: 'g1', ANTHROPIC_API_KEY: 'a1', AIRWISE_LLM_PROVIDER: 'gemini' });
+  assert.deepEqual(forced.apiKeys, ['g1']);
   assert.equal(loadConfig({ GEMINI_API_KEY: 'g1', AIRWISE_DISABLE_LLM: 'true' }).llmEnabled, false);
 });
 
