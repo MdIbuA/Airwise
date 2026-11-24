@@ -150,7 +150,7 @@ Every number the user sees comes from the engine. The model is only allowed to u
   - **Claude (default, verified in live testing):** `claude-opus-5-5` via the official `@anthropic-ai/sdk`, at low effort because it only narrates facts that are already computed. It uses server-side model fallback, and if an account rejects that feature, AirWise retries without it automatically.
   - **Google Gemini (alternative):** `gemini-3.8-flash` via the official `@google/genai` SDK. It handles model problems automatically:
     - **Retired or unavailable model (HTTP 404):** AirWise moves to the next model in its list (`gemini-3.8-flash` → `3.7-flash` → `3.6-flash` → `3.5-flash` → `3.5-flash-lite` → `gemini-flash-latest` → `gemini-flash-lite-latest`) and keeps using it.
-    - **Overloaded model or timeout (HTTP 500/503/504):** AirWise retries once, then answers that request with the next model. Next time it goes back to the preferred model. 
+    - **Overloaded model or timeout (HTTP 500/503/504):** AirWise retries once, then answers that request with the next model. Next time it goes back to the preferred model.
 - **Structured outputs:** a JSON schema (Gemini `responseJsonSchema`, Claude `output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
 - **Grounded prompt:** the model receives the engine's plan as JSON and must not invent statistics.
 - **Prompt-injection defence:** the user's question goes inside `<user_question>` tags and is labelled as data. Off-topic requests are declined.
