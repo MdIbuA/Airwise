@@ -20,12 +20,13 @@ function outputError(message) {
 }
 
 /** Per-model thinking settings: narrating pre-computed facts needs little reasoning. */
-function geminiThinkingConfig(model) {
+function geminiThinkingConfig(model, level = 'MINIMAL') {
   // 2.5 Flash thinks by default and thinking tokens count against
   // maxOutputTokens; disabling it avoids truncated JSON.
   if (/2\.5-flash/.test(model)) return { thinkingBudget: 0 };
-  // Gemini 3+ uses thinking levels; LOW is fast and plenty for this task.
-  if (/^gemini-[3-9]/.test(model)) return { thinkingLevel: 'LOW' };
+  // Gemini 3+ uses thinking levels. Narrating facts the rule engine already
+  // computed needs almost no reasoning, so MINIMAL is the fastest choice.
+  if (/^gemini-[3-9]/.test(model)) return { thinkingLevel: level };
   return undefined;
 }
 
@@ -53,8 +54,22 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
     return client;
   };
 
-  async function callModel(modelName, { system, user, schema }) {
-    const thinkingConfig = geminiThinkingConfig(modelName);
+  // Models that reject MINIMAL thinking are remembered and called with LOW.
+  const needsLowThinking = new Set();
+
+  async function callModel(modelName, request) {
+    try {
+      return await callModelOnce(modelName, request, needsLowThinking.has(modelName) ? 'LOW' : 'MINIMAL');
+    } catch (error) {
+      const rejectedLevel = error?.status === 400 && /thinking/i.test(error.message || '');
+      if (!rejectedLevel || needsLowThinking.has(modelName)) throw error;
+      needsLowThinking.add(modelName);
+      return callModelOnce(modelName, request, 'LOW');
+    }
+  }
+
+  async function callModelOnce(modelName, { system, user, schema }, level) {
+    const thinkingConfig = geminiThinkingConfig(modelName, level);
     try {
       return await getClient().models.generateContent({
         model: modelName,

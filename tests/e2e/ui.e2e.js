@@ -128,3 +128,58 @@ test('AirWise UI', async (t) => {
     await page.context().close();
   });
 });
+
+test('AI briefing arrives after the plan (progressive loading)', async (t) => {
+  let releaseAi;
+  const aiGate = new Promise((resolve) => { releaseAi = resolve; });
+  const slowAi = {
+    name: 'slow-ai',
+    generate: async () => {
+      await aiGate;
+      return JSON.stringify({
+        summary: 'AI-written summary for Delhi.',
+        priorities: [{ action: 'AI action one', impact: 'impact one' }],
+        answer: 'AI answer to the question.',
+      });
+    },
+  };
+  const app = createApp({
+    airQuality: createAirQualityService({ fetchImpl: makeFetch().fetchImpl }),
+    assistant: createAssistant({ enabled: true, providers: [slowAi], budgetMs: 10_000, logger: silentLogger }),
+    rateLimitPerMinute: 1000,
+    logger: silentLogger,
+  });
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
+  const browser = await chromium.launch(process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {});
+  t.after(async () => {
+    releaseAi();
+    await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.getByLabel('City or town').fill('Delhi');
+  await page.getByLabel('Anything specific you want to ask?').fill('Can my kid play outside?');
+  await page.getByRole('button', { name: 'Get my clean-air plan' }).click();
+
+  // The plan renders while the AI is still blocked.
+  await page.locator('#results:not([hidden])').waitFor();
+  const card = page.locator('#narrative-card');
+  assert.match(await card.innerText(), /writing/i);
+  assert.match(await card.innerText(), /The AI coach is answering/);
+  assert.match(await page.locator('#alternatives').innerText(), /priority/i);
+  const { violations } = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+  assert.deepEqual(violations.map((v) => `${v.id}: ${v.help}`), []);
+
+  // Release the AI: the card upgrades in place and screen readers are told.
+  releaseAi();
+  await card.getByText('AI coach briefing').waitFor();
+  assert.match(await card.innerText(), /AI answer to the question\./);
+  assert.equal(await card.getAttribute('aria-busy'), 'false');
+  assert.equal(await page.locator('#ai-status').textContent(), 'AI coach briefing is ready.');
+  await context.close();
+});

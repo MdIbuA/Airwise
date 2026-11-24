@@ -40,7 +40,10 @@ const config = Object.freeze({
   apiKeys: keysByProvider[provider],
   llmEnabled: keysByProvider[provider].length > 0 && process.env.AIRWISE_DISABLE_LLM !== 'true',
   llmModel: process.env.AIRWISE_MODEL || undefined,
-  llmTimeoutMs: toInt(process.env.AIRWISE_LLM_TIMEOUT_MS, 30000),
+  // Per-request timeout for one model call, and the total time the user waits
+  // for AI before getting the rule-based briefing (AI then finishes in the background).
+  llmTimeoutMs: toInt(process.env.AIRWISE_LLM_TIMEOUT_MS, 10000),
+  aiBudgetMs: toInt(process.env.AIRWISE_AI_BUDGET_MS, 12000),
   httpTimeoutMs: toInt(process.env.AIRWISE_HTTP_TIMEOUT_MS, 6000),
   airQualityTtlMs: toInt(process.env.AIRWISE_AQ_TTL_MS, 15 * 60 * 1000),
   geocodeTtlMs: toInt(process.env.AIRWISE_GEO_TTL_MS, 24 * 60 * 60 * 1000),

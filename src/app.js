@@ -9,6 +9,7 @@ const { rateLimit } = require('express-rate-limit');
 const { validateProfile, validateCity, ENUMS } = require('./utils/validation');
 const { AppError } = require('./utils/errors');
 const { buildPlan, classifyAqi, buildCommunityAlert } = require('./services/recommendationEngine');
+const { templateNarrative } = require('./services/assistant');
 
 /**
  * Builds the Express app. Services are injected so tests can run fully
@@ -55,7 +56,7 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
     }),
   );
 
-  // /api/plan may call the LLM, so it gets a tighter per-IP budget to cap cost.
+  // /api/narrative calls the LLM, so it gets a tighter per-IP budget to cap cost.
   const planLimiter = rateLimit({
     windowMs: 60_000,
     limit: Math.max(1, Math.ceil(rateLimitPerMinute / 3)),
@@ -79,19 +80,40 @@ function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = co
     }
   });
 
-  app.post('/api/plan', planLimiter, async (req, res, next) => {
+  /** Validated profile + air reading (manual override or live, cached). */
+  async function resolveRequest(body) {
+    const profile = validateProfile(body);
+    const air =
+      profile.manualAqi !== null
+        ? { aqi: profile.manualAqi, location: { name: profile.city, country: '' }, forecast: null, source: 'Manual entry' }
+        : await airQuality.getAirQuality(profile.city);
+    return { profile, air, plan: buildPlan(profile, air) };
+  }
+
+  // Fast path: the full plan from the rule engine, no LLM wait (~ms when cached).
+  // The client then upgrades the briefing via /api/narrative if AI is on.
+  app.post('/api/plan', async (req, res, next) => {
     try {
-      const profile = validateProfile(req.body);
-      let air;
-      if (profile.manualAqi !== null) {
-        air = { aqi: profile.manualAqi, location: { name: profile.city, country: '' }, forecast: null, source: 'Manual entry' };
-      } else {
-        air = await airQuality.getAirQuality(profile.city);
-      }
-      const plan = buildPlan(profile, air);
-      const narrative = await assistant.narrate(plan, profile, air);
+      const { profile, air, plan } = await resolveRequest(req.body);
       res.set('Cache-Control', 'no-store');
-      res.json({ air, ...plan, narrative, communityAlert: buildCommunityAlert(plan, air, profile.city) });
+      res.json({
+        air,
+        ...plan,
+        narrative: { ...templateNarrative(plan, profile), source: 'rules' },
+        aiAvailable: Boolean(assistant.isActive),
+        communityAlert: buildCommunityAlert(plan, air, profile.city),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Slow path: the AI briefing (time-boxed inside the assistant; never throws).
+  app.post('/api/narrative', planLimiter, async (req, res, next) => {
+    try {
+      const { profile, air, plan } = await resolveRequest(req.body);
+      res.set('Cache-Control', 'no-store');
+      res.json({ narrative: await assistant.narrate(plan, profile, air) });
     } catch (error) {
       next(error);
     }

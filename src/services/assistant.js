@@ -62,7 +62,7 @@ function templateNarrative(plan, profile) {
 
   const savings =
     impactSummary.co2KgPerYear > 0
-      ? ` Adopting the suggested swaps could avoid about ${impactSummary.co2KgPerYear} kg of CO₂ a year — roughly what ${impactSummary.treeEquivalent} trees absorb.`
+      ? ` Adopting the suggested swaps could avoid about ${impactSummary.co2KgPerYear} kg of CO₂ a year — roughly what ${impactSummary.treeEquivalent} ${impactSummary.treeEquivalent === 1 ? 'tree absorbs' : 'trees absorb'}.`
       : '';
   const summary = `AQI in ${profile.city} is ${risk.aqi} (${risk.category}). ${risk.headline}${savings}`;
 
@@ -137,12 +137,14 @@ function shouldFailover(error) {
   return status === undefined || status === 401 || status === 403 || status === 429 || status >= 500;
 }
 
+const TIMED_OUT = Symbol('timed-out');
+
 /**
  * @param {{ enabled: boolean, providers?: Array<{name:string, generate:Function}>,
- *           ttlMs?: number, logger?: Console }} options
+ *           ttlMs?: number, budgetMs?: number, logger?: Console }} options
  *   `providers` are tried in order (primary key, then backup); see llmProviders.js.
  */
-function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = console }) {
+function createAssistant({ enabled, providers = [], ttlMs = 900000, budgetMs = 12000, logger = console }) {
   const cache = new TtlCache({ ttlMs, maxEntries: 300 });
   const active = enabled && providers.length > 0;
 
@@ -176,23 +178,44 @@ function createAssistant({ enabled, providers = [], ttlMs = 900000, logger = con
 
   /**
    * Produces the narrative for a plan. Always resolves (never throws).
-   * @returns {Promise<{summary:string, priorities:Array, answer:string, source:'ai'|'rules'}>}
+   *
+   * The AI gets at most `budgetMs` in total (across retries, models and keys).
+   * If it runs over, the rule-based briefing is returned immediately while the
+   * AI call keeps running in the background; its result lands in the cache, so
+   * the user's next request for the same plan is instant.
+   *
+   * @returns {Promise<{summary:string, priorities:Array, answer:string, source:'ai'|'rules', reason?:string}>}
    */
   async function narrate(plan, profile, air) {
-    if (!active) return { ...templateNarrative(plan, profile), source: 'rules' };
+    if (!active) return { ...templateNarrative(plan, profile), source: 'rules', reason: 'disabled' };
     const payload = buildPromptPayload(plan, profile, air);
     const key = crypto.createHash('sha256').update(JSON.stringify([payload, profile.question])).digest('hex');
+
+    const pending = cache.wrap(key, () => callModel(payload, profile.question));
+    // If we stop waiting, the promise may still reject later: never leave that unhandled.
+    pending.catch(() => {});
+
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), budgetMs);
+    });
     try {
-      const narrative = await cache.wrap(key, () => callModel(payload, profile.question));
-      return { ...narrative, source: 'ai' };
+      const result = await Promise.race([pending, timeout]);
+      if (result === TIMED_OUT) {
+        logger.warn(`[assistant] AI took longer than ${budgetMs} ms; serving rule-based briefing (AI result will be cached)`);
+        return { ...templateNarrative(plan, profile), source: 'rules', reason: 'timeout' };
+      }
+      return { ...result, source: 'ai' };
     } catch (error) {
       // Log the class of failure only; never log prompts or keys.
       logger.warn(`[assistant] AI unavailable, using rule-based briefing: ${describeError(error)}`);
-      return { ...templateNarrative(plan, profile), source: 'rules' };
+      return { ...templateNarrative(plan, profile), source: 'rules', reason: 'error' };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  return { narrate };
+  return { narrate, isActive: active };
 }
 
 module.exports = { createAssistant, shouldFailover, describeError, templateNarrative, buildPromptPayload, isValidNarrative, OUTPUT_SCHEMA, SYSTEM_PROMPT };

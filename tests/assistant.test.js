@@ -152,3 +152,50 @@ test('describeError extracts the provider message and masks anything key-like', 
   assert.equal(describeError(leaky), '403 bad key AIza… and sk-ant-…');
   assert.equal(describeError(new Error('ECONNRESET')), 'network ECONNRESET');
 });
+
+test('AI slower than the budget: rules now, AI result cached for the next request', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const provider = fakeProvider(async () => { await gate; return GOOD_JSON; });
+  const logs = [];
+  const assistant = createAssistant({ enabled: true, providers: [provider], budgetMs: 30, logger: { warn: (m) => logs.push(m) } });
+  const profile = makeProfile();
+  const plan = buildPlan(profile, air);
+
+  const first = await assistant.narrate(plan, profile, air);
+  assert.equal(first.source, 'rules');
+  assert.equal(first.reason, 'timeout');
+  assert.match(logs[0], /longer than 30 ms/);
+
+  release(); // AI finishes in the background
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = await assistant.narrate(plan, profile, air);
+  assert.equal(second.source, 'ai');
+  assert.equal(provider.requests.length, 1); // served from cache, no second call
+});
+
+test('a background AI failure after a timeout is swallowed (no unhandled rejection)', async () => {
+  let fail;
+  const gate = new Promise((_, reject) => { fail = reject; });
+  const provider = fakeProvider(() => gate);
+  const assistant = createAssistant({ enabled: true, providers: [provider], budgetMs: 10, logger: silentLogger });
+  const profile = makeProfile();
+  const result = await assistant.narrate(buildPlan(profile, air), profile, air);
+  assert.equal(result.source, 'rules');
+  fail(Object.assign(new Error('late failure'), { status: 503 }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  // Reaching here without the test runner reporting an unhandled rejection is the assertion.
+});
+
+test('isActive reflects whether AI can be used', () => {
+  assert.equal(createAssistant({ enabled: true, providers: [fakeProvider(() => GOOD_JSON)] }).isActive, true);
+  assert.equal(createAssistant({ enabled: true, providers: [] }).isActive, false);
+  assert.equal(createAssistant({ enabled: false, providers: [fakeProvider(() => GOOD_JSON)] }).isActive, false);
+});
+
+test('template summary uses singular "tree" for one tree', () => {
+  const profile = makeProfile({ commuteMode: 'public_transport', commuteKm: 2 });
+  const plan = buildPlan(profile, { aqi: 250 });
+  plan.impactSummary = { co2KgPerWeek: 0.4, co2KgPerYear: 21, treeEquivalent: 1 };
+  assert.match(templateNarrative(plan, profile).summary, /roughly what 1 tree absorbs\./);
+});

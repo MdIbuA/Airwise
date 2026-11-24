@@ -42,11 +42,25 @@ test('Gemini provider sends system prompt + JSON schema and returns text', async
   assert.equal(params.config.thinkingConfig, undefined);
 });
 
-test('Gemini 3+ models use a LOW thinking level', async () => {
+test('Gemini 3+ models use MINIMAL thinking for speed', async () => {
   const { sdk, calls } = fakeGenAi(() => ({ text: '{}', candidates: [{ finishReason: 'STOP' }] }));
   await createGeminiProvider({ apiKey: 'k', model: 'gemini-3.8-flash', timeoutMs: 1, sdk }).generate(request);
-  assert.deepEqual(calls[1].params.config.thinkingConfig, { thinkingLevel: 'LOW' });
+  assert.deepEqual(calls[1].params.config.thinkingConfig, { thinkingLevel: 'MINIMAL' });
   assert.equal(calls[1].params.config.temperature, undefined);
+});
+
+test('a model that rejects MINIMAL thinking is retried with LOW and remembered', async () => {
+  const { sdk, calls } = fakeGenAi((params) => {
+    if (params.config.thinkingConfig?.thinkingLevel === 'MINIMAL') {
+      throw Object.assign(new Error('Thinking level MINIMAL is not supported for this model.'), { status: 400 });
+    }
+    return { text: '{}', candidates: [{ finishReason: 'STOP' }] };
+  });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'gemini-3.8-flash', timeoutMs: 1, sdk });
+  await provider.generate(request);
+  await provider.generate(request);
+  const levels = calls.filter((c) => c.params).map((c) => c.params.config.thinkingConfig.thinkingLevel);
+  assert.deepEqual(levels, ['MINIMAL', 'LOW', 'LOW']);
 });
 
 test('Gemini provider falls back to the next model on 404 and remembers it', async () => {

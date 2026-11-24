@@ -70,8 +70,8 @@ It also produces a **shareable community alert** with no personal details. You c
 | **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A (Gemini), with backup-key failover.</li></ul> | `recommendationEngine.js`, `assistant.js` |
 | **Code quality** | <ul><li>Layered design: routes, services, a pure rule engine and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc on public functions; ESLint (flat config) enforced in CI.</li><li>Small, single-purpose modules.</li></ul> | `src/`, `eslint.config.js` |
 | **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
-| **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Small, low-temperature LLM call with a capped output, since it only narrates facts that are already computed; only the configured vendor SDK is loaded.</li><li>No front-end framework (≈10 kB of JS); 6 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
-| **Testing** | <ul><li>**64 unit/API tests** (~99% line coverage), fully offline.</li><li>**7 browser E2E tests** covering the full flow, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
+| **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Progressive loading: the plan renders in well under a second, and the AI briefing streams in afterwards within a 12 s budget (background-cached if slower).</li><li>Small LLM call with minimal thinking and a capped output, since it only narrates facts that are already computed; only the configured vendor SDK is loaded.</li><li>No front-end framework (≈10 kB of JS); 6 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
+| **Testing** | <ul><li>**81 unit/API tests** (~99% line coverage), fully offline.</li><li>**8 browser E2E tests** covering the full flow, progressive AI loading, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI.</li></ul> | `tests/`, `.github/workflows/ci.yml` |
 | **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
 
 ---
@@ -150,6 +150,11 @@ Every number the user sees comes from the engine. The model is only allowed to u
 - **Structured outputs:** a JSON schema (Gemini `responseJsonSchema`, Claude `output_config.format`) guarantees the shape `{summary, priorities[], answer}`, and the response is validated again on the server.
 - **Grounded prompt:** the model receives the engine's plan as JSON and must not invent statistics.
 - **Prompt-injection defence:** the user's question goes inside `<user_question>` tags and is labelled as data. Off-topic requests are declined.
+- **Speed: progressive loading.** The plan never waits for the LLM:
+  - `/api/plan` returns the full plan with a rule-based briefing in a few hundred milliseconds.
+  - The page then asks `/api/narrative` for the AI briefing. The coach card shows a "writing" state and is upgraded in place when the AI answers.
+  - The AI has a **12-second total budget**. If it runs over, the rule-based briefing stays, the AI call finishes in the background, and its result is cached, so asking again is instant.
+  - Gemini 3 models run with **minimal thinking**, because the facts are already computed. If a model rejects that setting, AirWise switches to `LOW` automatically.
 - **Efficiency:**
   - Low reasoning effort, because the model only narrates facts that are already computed.
   - Responses are cached for 15 minutes, keyed by a SHA-256 hash of the inputs.
@@ -187,7 +192,7 @@ Without an API key, AirWise still works fully in **rule-based mode**. If the air
 ### Quality checks
 ```bash
 npm run lint            # ESLint
-npm test                # 64 unit + API tests (node:test, fully offline)
+npm test                # 81 unit + API tests (node:test, fully offline)
 npm run test:coverage   # ~99% line coverage of src/
 npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
 npm run check           # all of the above
@@ -214,6 +219,8 @@ This sends one tiny test request per configured key. It reports whether each key
 | `PORT` | No | HTTP port (default 8080) |
 | `AIRWISE_RATE_LIMIT` | No | API requests/min per IP (default 30; `/api/plan` gets a third) |
 | `AIRWISE_DISABLE_LLM` | No | `true` forces rule-based mode |
+| `AIRWISE_AI_BUDGET_MS` | No | Max total wait for the AI briefing (default 12000) before the rule-based one is kept |
+| `AIRWISE_LLM_TIMEOUT_MS` | No | Timeout for a single model call (default 10000) |
 
 Keys are read only on the server. Never commit `.env` (it is git-ignored); on a cloud host, use its secret manager.
 
@@ -242,7 +249,8 @@ docker run -p 8080:8080 -e GEMINI_API_KEY=... -e GEMINI_API_KEY_BACKUP=... airwi
 | `GET` | `/api/health` | Liveness |
 | `GET` | `/api/options` | Allowed enum values |
 | `GET` | `/api/air?city=Delhi` | Live AQI, pollutants, cleanest window |
-| `POST` | `/api/plan` | Full personalised plan + narrative |
+| `POST` | `/api/plan` | Full personalised plan + rule-based briefing, returned instantly (no LLM wait) |
+| `POST` | `/api/narrative` | AI briefing for the same profile (time-boxed; tighter rate limit) |
 
 ---
 

@@ -190,19 +190,75 @@
 
   /* ---------------- AI briefing ---------------- */
 
-  function renderNarrative(narrative) {
+  /**
+   * Coach card. States:
+   *  - pending: rule-based briefing shown, AI still writing (status line + shimmer)
+   *  - ai:      AI briefing
+   *  - rules:   final rule-based briefing (AI off, failed or slow)
+   */
+  function renderNarrative(narrative, { pending = false, hasQuestion = false } = {}) {
     const card = document.getElementById('narrative-card');
     const isAi = narrative.source === 'ai';
+    card.classList.toggle('is-pending', pending);
+    card.setAttribute('aria-busy', String(pending));
+
+    let answer = null;
+    if (pending && hasQuestion) {
+      answer = el('div', { className: 'answer answer--pending' }, icon('chat'), el('div', {}, el('strong', {}, 'Your question'), el('p', {}, 'The AI coach is answering…')));
+    } else if (narrative.answer) {
+      const text = narrative.reason === 'timeout' && hasQuestion
+        ? 'The AI coach is busy right now, so this answer is not ready yet. Submit again in a minute — it will be ready instantly.'
+        : narrative.answer;
+      answer = el('div', { className: 'answer' }, icon('chat'), el('div', {}, el('strong', {}, 'Your question'), el('p', {}, text)));
+    }
+
+    const badge = isAi ? 'AI coach' : pending ? 'AI coach · writing' : 'Coach · rule-based';
+    const title = isAi ? 'AI coach briefing' : 'Coach briefing (rule-based)';
     setChildren(
       card,
-      el('span', { className: 'ai-badge' }, icon('spark'), isAi ? 'AI coach' : 'Coach · rule-based'),
-      el('h3', {}, isAi ? 'AI coach briefing' : 'Coach briefing (rule-based)'),
+      el('span', { className: 'ai-badge' }, icon('spark'), badge),
+      el('h3', {}, title),
+      pending ? el('div', { className: 'ai-progress' }, el('span', { className: 'ai-progress__bar' }), el('span', {}, 'Personalising with AI — your plan below is ready to use now.')) : null,
       el('p', { className: 'ai-summary' }, narrative.summary),
       el('h4', { className: 'visually-hidden' }, 'Top 3 actions today'),
       el('ol', { className: 'top-actions' }, ...narrative.priorities.map((p) => el('li', {}, el('strong', {}, p.action), el('p', {}, p.impact)))),
-      narrative.answer ? el('div', { className: 'answer' }, icon('chat'), el('div', {}, el('strong', {}, 'Your question'), el('p', {}, narrative.answer))) : null,
+      answer,
     );
   }
+
+  /** Upgrades the coach card with the AI briefing, ignoring stale responses. */
+  let narrativeRequestId = 0;
+  async function loadAiNarrative(payload, hasQuestion) {
+    const requestId = ++narrativeRequestId;
+    const status = document.getElementById('ai-status');
+    let narrative = null;
+    try {
+      const response = await fetch('/api/narrative', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) narrative = (await response.json()).narrative;
+    } catch {
+      /* network error: keep the rule-based briefing */
+    }
+    if (requestId !== narrativeRequestId) return; // a newer submission superseded this one
+    const card = document.getElementById('narrative-card');
+    if (narrative) {
+      renderNarrative(narrative, { hasQuestion });
+    } else {
+      card.classList.remove('is-pending');
+      card.setAttribute('aria-busy', 'false');
+      card.querySelector('.ai-progress')?.remove();
+      card.querySelector('.answer--pending')?.remove();
+    }
+    card.classList.remove('reveal');
+    void card.offsetWidth;
+    card.style.animationDelay = '0ms';
+    card.classList.add('reveal');
+    status.textContent = narrative?.source === 'ai' ? 'AI coach briefing is ready.' : '';
+  }
+
 
   /* ---------------- Impact tiles ---------------- */
 
@@ -216,12 +272,12 @@
     const text = document.getElementById('impact-summary');
     const tiles = document.getElementById('stat-tiles');
     if (summary.co2KgPerYear > 0) {
-      text.textContent = `Adopting these swaps could avoid ≈${summary.co2KgPerYear} kg CO₂ per year (${summary.co2KgPerWeek} kg/week) — about what ${summary.treeEquivalent} mature trees absorb.`;
+      text.textContent = `Adopting these swaps could avoid ≈${summary.co2KgPerYear} kg CO₂ per year (${summary.co2KgPerWeek} kg/week) — about what ${summary.treeEquivalent} mature ${summary.treeEquivalent === 1 ? 'tree absorbs' : 'trees absorb'}.`;
       setChildren(
         tiles,
         statTile(summary.co2KgPerYear, 'kg', 'CO₂ avoidable per year'),
         statTile(summary.co2KgPerWeek, 'kg', 'CO₂ avoidable per week', 1),
-        statTile(summary.treeEquivalent, 'trees', 'Equivalent yearly absorption'),
+        statTile(summary.treeEquivalent, summary.treeEquivalent === 1 ? 'tree' : 'trees', 'Equivalent yearly absorption'),
       );
     } else {
       text.textContent = 'Your current choices are already low-emission — focus on reducing exposure and helping your community.';
@@ -359,11 +415,13 @@
     city.removeAttribute('aria-invalid');
     setBusy(true);
 
+    const payload = collectPayload();
+    narrativeRequestId += 1; // invalidate any in-flight AI request from a previous submit
     try {
       const response = await fetch('/api/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(collectPayload()),
+        body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -373,7 +431,8 @@
       }
       results.hidden = false;
       renderAqi(data);
-      renderNarrative(data.narrative);
+      const hasQuestion = Boolean(payload.question);
+      renderNarrative(data.narrative, { pending: data.aiAvailable, hasQuestion });
       renderImpact(data.impactSummary);
       renderRoutine(data.routine);
       renderItems('indoor', data.indoorHacks);
@@ -381,6 +440,7 @@
       renderCommunityAlert(data.communityAlert);
       revealSections();
       document.getElementById('results-heading').focus();
+      if (data.aiAvailable) loadAiNarrative(payload, hasQuestion);
     } catch (error) {
       showError(error.message || 'Could not reach AirWise. Check your connection and try again.');
     } finally {

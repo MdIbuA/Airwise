@@ -21,6 +21,7 @@ const app = createApp({
       timeoutMs: config.llmTimeoutMs,
     }),
     ttlMs: config.planTtlMs,
+    budgetMs: config.aiBudgetMs,
   }),
   rateLimitPerMinute: config.rateLimitPerMinute,
 });

@@ -8,11 +8,11 @@ const { createAssistant } = require('../src/services/assistant');
 const { makeFetch, silentLogger } = require('./helpers');
 
 /** Starts the app on an ephemeral port and returns a base URL + closer. */
-async function startServer({ fail = false, rateLimitPerMinute = 100 } = {}) {
+async function startServer({ fail = false, rateLimitPerMinute = 100, assistant } = {}) {
   const { fetchImpl } = makeFetch({ fail });
   const app = createApp({
     airQuality: createAirQualityService({ fetchImpl }),
-    assistant: createAssistant({ enabled: false }),
+    assistant: assistant || createAssistant({ enabled: false }),
     rateLimitPerMinute,
     logger: silentLogger,
   });
@@ -123,13 +123,13 @@ test('responses are gzip-compressed when the client accepts it', async (t) => {
   assert.equal(res.headers.get('content-encoding'), 'gzip');
 });
 
-test('plan endpoint has a tighter rate limit than the rest of the API', async (t) => {
-  const srv = await startServer({ rateLimitPerMinute: 6 }); // plan limit = 2
+test('AI narrative endpoint has a tighter rate limit than the rest of the API', async (t) => {
+  const srv = await startServer({ rateLimitPerMinute: 6 }); // narrative limit = 2
   t.after(srv.close);
   const body = { city: 'Delhi', manualAqi: 80 };
-  assert.equal((await postJson(`${srv.base}/api/plan`, body)).status, 200);
-  assert.equal((await postJson(`${srv.base}/api/plan`, body)).status, 200);
-  const limited = await postJson(`${srv.base}/api/plan`, body);
+  assert.equal((await postJson(`${srv.base}/api/narrative`, body)).status, 200);
+  assert.equal((await postJson(`${srv.base}/api/narrative`, body)).status, 200);
+  const limited = await postJson(`${srv.base}/api/narrative`, body);
   assert.equal(limited.status, 429);
   assert.match((await limited.json()).error, /plan requests/);
   assert.equal((await fetch(`${srv.base}/api/health`)).status, 200);
@@ -142,4 +142,40 @@ test('rate limiter returns 429 after the limit', async (t) => {
   await fetch(`${srv.base}/api/health`);
   const res = await fetch(`${srv.base}/api/health`);
   assert.equal(res.status, 429);
+});
+
+test('plan responds without waiting for the AI; narrative endpoint returns the AI briefing', async (t) => {
+  let calls = 0;
+  const slowProvider = {
+    name: 'slow',
+    generate: async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return JSON.stringify({ summary: 'AI summary', priorities: [{ action: 'A', impact: 'a' }], answer: 'AI answer' });
+    },
+  };
+  const srv = await startServer({ assistant: createAssistant({ enabled: true, providers: [slowProvider], logger: silentLogger }) });
+  t.after(srv.close);
+  const body = { city: 'Delhi', manualAqi: 250, question: 'Can my kid play outside?' };
+
+  const started = Date.now();
+  const plan = await (await postJson(`${srv.base}/api/plan`, body)).json();
+  assert.ok(Date.now() - started < 250, 'plan must not wait for the slow AI');
+  assert.equal(plan.aiAvailable, true);
+  assert.equal(plan.narrative.source, 'rules');
+  assert.equal(calls, 0);
+
+  const ai = await (await postJson(`${srv.base}/api/narrative`, body)).json();
+  assert.equal(ai.narrative.source, 'ai');
+  assert.equal(ai.narrative.answer, 'AI answer');
+});
+
+test('narrative endpoint validates input like the plan endpoint', async (t) => {
+  const srv = await startServer();
+  t.after(srv.close);
+  const res = await postJson(`${srv.base}/api/narrative`, { city: '' });
+  assert.equal(res.status, 400);
+  const off = await (await postJson(`${srv.base}/api/narrative`, { city: 'Delhi', manualAqi: 90 })).json();
+  assert.equal(off.narrative.source, 'rules');
+  assert.equal(off.narrative.reason, 'disabled');
 });
