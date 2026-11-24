@@ -41,3 +41,17 @@ test('only a Claude key selects Anthropic; explicit provider and disable flag wi
   assert.deepEqual(forced.apiKeys, ['a1']);
   assert.equal(loadConfig({ GEMINI_API_KEY: 'g1', AIRWISE_DISABLE_LLM: 'true' }).llmEnabled, false);
 });
+
+test('values are trimmed and provider names are case-insensitive', () => {
+  const config = loadConfig({ AIRWISE_LLM_PROVIDER: ' Anthropic ', ANTHROPIC_API_KEY: ' a1 ' });
+  assert.equal(config.llmProvider, 'anthropic');
+  assert.deepEqual(config.apiKeys, ['a1']);
+});
+
+test('.env saved by Windows Notepad (BOM + CRLF) is parsed correctly', () => {
+  const { parseEnvText } = loadConfig({});
+  const parsed = parseEnvText('\uFEFFAIRWISE_LLM_PROVIDER=anthropic\r\nANTHROPIC_API_KEY=abc\r\n');
+  assert.equal(parsed.AIRWISE_LLM_PROVIDER, 'anthropic');
+  assert.equal(parsed.ANTHROPIC_API_KEY, 'abc');
+  assert.equal(Object.keys(parsed).some((k) => k.startsWith('\uFEFF')), false);
+});

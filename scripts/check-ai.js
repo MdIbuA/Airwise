@@ -48,7 +48,16 @@ async function listGeminiModels(apiKey) {
 
 async function main() {
   const model = config.llmModel || DEFAULT_MODELS[config.llmProvider];
-  console.log(`Provider: ${config.llmProvider}   Model: ${model}`);
+  console.log(`.env file: ${config.envFileFound ? 'found' : 'NOT FOUND in the project folder'}`);
+  console.log(`Keys found: Gemini ${config.keyCounts.gemini}, Anthropic ${config.keyCounts.anthropic}`);
+  console.log(`AIRWISE_LLM_PROVIDER: ${config.providerRequested || '(not set)'}  [from ${config.providerSource}]`);
+  if (config.providerRequested && !['gemini', 'anthropic'].includes(config.providerRequested.toLowerCase())) {
+    console.log(`⚠ "${config.providerRequested}" is not a valid provider: use gemini or anthropic.`);
+  }
+  if (config.providerSource === 'system environment') {
+    console.log('⚠ AIRWISE_LLM_PROVIDER is set in Windows/system environment variables, which override .env.');
+  }
+  console.log(`Provider: ${config.llmProvider}   Model: ${model}\n`);
   if (!config.apiKeys.length) {
     console.log('\n✖ No API key found, so AI is OFF (rule-based mode).');
     console.log('  Fix: create a .env file in the project folder containing either:');

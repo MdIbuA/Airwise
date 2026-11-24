@@ -2,11 +2,24 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const util = require('node:util');
 
-// Load .env (if present) using Node's built-in parser — no dotenv dependency.
-// Real environment variables always win over values in the file.
+// Load .env (if present). Real environment variables always win over the file.
+// Parsed with Node's built-in parser after stripping a UTF-8 BOM: Windows
+// Notepad can prepend one, which would otherwise corrupt the first key's name.
+/** Parses .env text (BOM-safe). Exported for tests. */
+const parseEnvText = (text) => util.parseEnv(String(text).replace(/^\uFEFF/, ''));
+
 const envFile = path.join(__dirname, '..', '.env');
-if (process.env.NODE_ENV !== 'test' && fs.existsSync(envFile)) process.loadEnvFile(envFile);
+const loadedFromFile = new Set();
+if (process.env.NODE_ENV !== 'test' && fs.existsSync(envFile)) {
+  for (const [key, value] of Object.entries(parseEnvText(fs.readFileSync(envFile, 'utf8')))) {
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+      loadedFromFile.add(key);
+    }
+  }
+}
 
 /**
  * Central runtime configuration. Every value can be overridden through
@@ -18,13 +31,14 @@ const toInt = (value, fallback) => {
 };
 
 const env = process.env;
+const read = (name) => (env[name] || '').trim();
 const keysByProvider = {
-  gemini: [env.GEMINI_API_KEY || env.GOOGLE_API_KEY, env.GEMINI_API_KEY_BACKUP || env.GOOGLE_API_KEY_BACKUP].filter(Boolean),
-  anthropic: [env.ANTHROPIC_API_KEY, env.ANTHROPIC_API_KEY_BACKUP].filter(Boolean),
+  gemini: [read('GEMINI_API_KEY') || read('GOOGLE_API_KEY'), read('GEMINI_API_KEY_BACKUP') || read('GOOGLE_API_KEY_BACKUP')].filter(Boolean),
+  anthropic: [read('ANTHROPIC_API_KEY'), read('ANTHROPIC_API_KEY_BACKUP')].filter(Boolean),
 };
 /** Explicit AIRWISE_LLM_PROVIDER wins; otherwise Gemini unless only a Claude key exists. */
 function pickProvider() {
-  const requested = (env.AIRWISE_LLM_PROVIDER || '').toLowerCase();
+  const requested = read('AIRWISE_LLM_PROVIDER').toLowerCase();
   if (Object.hasOwn(keysByProvider, requested)) return requested;
   if (!keysByProvider.gemini.length && keysByProvider.anthropic.length) return 'anthropic';
   return 'gemini';
@@ -39,7 +53,12 @@ const config = Object.freeze({
   llmProvider: provider,
   apiKeys: keysByProvider[provider],
   llmEnabled: keysByProvider[provider].length > 0 && process.env.AIRWISE_DISABLE_LLM !== 'true',
-  llmModel: process.env.AIRWISE_MODEL || undefined,
+  llmModel: read('AIRWISE_MODEL') || undefined,
+  // For diagnostics (npm run check:ai): what was asked for, and where it came from.
+  providerRequested: read('AIRWISE_LLM_PROVIDER'),
+  providerSource: env.AIRWISE_LLM_PROVIDER === undefined ? 'not set' : loadedFromFile.has('AIRWISE_LLM_PROVIDER') ? '.env file' : 'system environment',
+  envFileFound: fs.existsSync(envFile),
+  keyCounts: { gemini: keysByProvider.gemini.length, anthropic: keysByProvider.anthropic.length },
   // Per-request timeout for one model call, and the total time the user waits
   // for AI before getting the rule-based briefing (AI then finishes in the background).
   llmTimeoutMs: toInt(process.env.AIRWISE_LLM_TIMEOUT_MS, 10000),
@@ -51,4 +70,4 @@ const config = Object.freeze({
   rateLimitPerMinute: toInt(process.env.AIRWISE_RATE_LIMIT, 30),
 });
 
-module.exports = config;
+module.exports = Object.freeze({ ...config, parseEnvText });
