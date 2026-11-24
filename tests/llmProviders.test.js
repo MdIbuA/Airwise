@@ -104,11 +104,27 @@ test('Gemini provider treats a 504 deadline like overload and moves to the next 
   assert.equal(await provider.generate(request), '{"ok":1}');
 });
 
-test('Gemini provider does not switch models on auth/quota errors (backup key handles those)', async () => {
-  const { sdk, calls } = fakeGenAi(() => { throw Object.assign(new Error('quota'), { status: 429 }); });
+test('Gemini provider does not switch models on auth errors (backup key handles those)', async () => {
+  const { sdk, calls } = fakeGenAi(() => { throw Object.assign(new Error('bad key'), { status: 401 }); });
   const provider = createGeminiProvider({ apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, sdk, retryDelayMs: 0 });
-  await assert.rejects(provider.generate(request), (error) => error.status === 429);
+  await assert.rejects(provider.generate(request), (error) => error.status === 401);
   assert.equal(calls.filter((c) => c.params).length, 1);
+});
+
+test('Gemini quota is per model: a 429 moves to the next model; all exhausted -> 429', async () => {
+  const { sdk, calls } = fakeGenAi((params) => {
+    if (params.model === 'busy-quota') throw Object.assign(new Error('You exceeded your current quota'), { status: 429 });
+    return { text: '{"ok":1}', candidates: [{ finishReason: 'STOP' }] };
+  });
+  const provider = createGeminiProvider({ apiKey: 'k', model: 'busy-quota', models: ['spare'], timeoutMs: 1, sdk, retryDelayMs: 0 });
+  assert.equal(await provider.generate(request), '{"ok":1}');
+  assert.deepEqual(calls.filter((c) => c.params).map((c) => c.params.model), ['busy-quota', 'spare']);
+
+  const allOut = createGeminiProvider({
+    apiKey: 'k', model: 'a', models: ['b'], timeoutMs: 1, retryDelayMs: 0,
+    sdk: fakeGenAi(() => { throw Object.assign(new Error('quota'), { status: 429 }); }).sdk,
+  });
+  await assert.rejects(allOut.generate(request), (error) => error.status === 429);
 });
 
 test('Gemini provider surfaces the last error when every model is overloaded', async () => {

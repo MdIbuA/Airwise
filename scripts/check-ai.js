@@ -20,7 +20,10 @@ const HINTS = {
       : 'Key lacks permission for this model or workspace. Check the key\'s workspace and model access in the Claude Console.',
   402: 'Billing problem: add credits or a payment method to the account that owns this key.',
   404: 'None of the models tried is available to this key. Set AIRWISE_MODEL in .env to a model named in the message above (e.g. the one Google recommends).',
-  429: 'Quota or rate limit reached on this key. Wait, or use the backup key / a billing-enabled project.',
+  429:
+    config.llmProvider === 'gemini'
+      ? 'Free-tier quota used up on every model tried. Daily quotas reset at midnight Pacific time. Keys from the SAME Google project share one quota, so a backup key only helps if it is from a different project (or enable billing).'
+      : 'Rate limit or credit limit reached. Wait a minute, or check usage limits in the Claude Console.',
   500: 'Google had a temporary server error. Try again in a few minutes.',
   504: 'Google timed out (temporary, on Google\'s side). The app retries and switches models automatically; your other key/model will be used meanwhile.',
   529: 'Claude is temporarily overloaded. Try again in a minute; the app falls back to your backup key and then to rule-based briefings.',

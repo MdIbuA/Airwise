@@ -34,6 +34,8 @@ function geminiThinkingConfig(model, level = 'MINIMAL') {
 const isModelUnavailable = (error) => error?.status === 404;
 /** Temporary server-side trouble (error, overload, deadline): retry / switch model. */
 const isOverloaded = (error) => [500, 503, 504].includes(error?.status);
+/** Quota / rate limit. Gemini counts these per model, so another model may still have room. */
+const isQuotaExceeded = (error) => error?.status === 429;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -98,7 +100,9 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
    *  - 500/503/504 (server error, overloaded, deadline expired): retry the same model once after a short pause, then
    *    try the next model for this request only; the preferred model is tried
    *    first again next time, since overload is temporary.
-   * Anything else (bad key, quota) is thrown so the backup key can be tried.
+   *  - 429 (quota / rate limit, counted per model on Gemini): try the next model.
+   * Anything else (e.g. bad key) is thrown so the backup key can be tried; if
+   * every model is out of quota, the 429 is thrown and the backup key is tried.
    */
   async function callWithFallback(request) {
     let lastError;
@@ -112,6 +116,7 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
             if (i === active && active < chain.length - 1) active += 1;
             break; // next model
           }
+          if (isQuotaExceeded(error)) break; // next model (no point retrying this one now)
           if (!isOverloaded(error)) throw error;
           if (attempt === 0) await sleep(retryDelayMs);
         }
