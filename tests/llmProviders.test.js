@@ -18,12 +18,13 @@ function fakeGenAi(handler) {
   return { sdk: { GoogleGenAI }, calls };
 }
 
-/** Fake @anthropic-ai/sdk module. */
-function fakeAnthropic(handler) {
+/** Fake @anthropic-ai/sdk module (beta and GA messages endpoints). */
+function fakeAnthropic(handler, gaHandler = handler) {
   const calls = [];
   function Anthropic(options) {
     calls.push({ ctor: options });
-    this.beta = { messages: { create: async (params) => { calls.push({ params }); return handler(params); } } };
+    this.beta = { messages: { create: async (params) => { calls.push({ params, beta: true }); return handler(params); } } };
+    this.messages = { create: async (params) => { calls.push({ params, beta: false }); return gaHandler(params); } };
   }
   return { sdk: Anthropic, calls };
 }
@@ -159,6 +160,27 @@ test('Anthropic provider uses structured output and rejects refusals', async () 
   const refused = fakeAnthropic(() => ({ stop_reason: 'refusal', content: [] }));
   const refusing = createAnthropicProvider({ apiKey: 'k', model: 'm', timeoutMs: 1, sdk: refused.sdk });
   await assert.rejects(refusing.generate(request), (error) => error.status === 422);
+});
+
+test('Anthropic provider retries without the fallback beta if the account rejects it', async () => {
+  const ok = { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"a":1}' }] };
+  const { sdk, calls } = fakeAnthropic(
+    () => { throw Object.assign(new Error('fallbacks: unsupported beta'), { status: 400 }); },
+    () => ok,
+  );
+  const provider = createAnthropicProvider({ apiKey: 'k', model: 'm', timeoutMs: 1, sdk });
+  assert.equal(await provider.generate(request), '{"a":1}');
+  assert.equal(await provider.generate(request), '{"a":1}');
+  const sent = calls.filter((c) => c.params);
+  assert.deepEqual(sent.map((c) => c.beta), [true, false, false]); // beta tried once, then remembered
+  assert.equal(sent[1].params.fallbacks, undefined);
+  assert.equal(sent[1].params.output_config.format.type, 'json_schema');
+});
+
+test('Anthropic provider does not hide unrelated 400 errors', async () => {
+  const { sdk } = fakeAnthropic(() => { throw Object.assign(new Error('invalid schema'), { status: 400 }); });
+  const provider = createAnthropicProvider({ apiKey: 'k', model: 'm', timeoutMs: 1, sdk });
+  await assert.rejects(provider.generate(request), (error) => error.status === 400 && /schema/.test(error.message));
 });
 
 test('createProviders builds one labelled provider per key with default models', () => {

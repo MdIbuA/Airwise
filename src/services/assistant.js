@@ -128,13 +128,13 @@ function describeError(error) {
 }
 
 /**
- * Errors worth retrying with the backup key: bad/revoked key (401/403),
+ * Errors worth retrying with the backup key: bad/revoked key (401/403), billing (402),
  * quota or rate limit on that key (429), overload/server errors (5xx) and
  * network failures (no status). A 400 would fail identically, so it is not.
  */
 function shouldFailover(error) {
   const status = error?.status;
-  return status === undefined || status === 401 || status === 403 || status === 429 || status >= 500;
+  return status === undefined || [401, 402, 403, 429].includes(status) || status >= 500;
 }
 
 const TIMED_OUT = Symbol('timed-out');

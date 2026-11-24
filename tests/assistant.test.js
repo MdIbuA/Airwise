@@ -130,6 +130,7 @@ test('backup key is not used for bad requests or refusals; rules are the last re
 
 test('shouldFailover classifies errors', () => {
   assert.equal(shouldFailover(apiError(401)), true);
+  assert.equal(shouldFailover(apiError(402)), true);
   assert.equal(shouldFailover(apiError(500)), true);
   assert.equal(shouldFailover(new Error('network')), true);
   assert.equal(shouldFailover(apiError(400)), false);

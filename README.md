@@ -160,7 +160,7 @@ Every number the user sees comes from the engine. The model is only allowed to u
   - Responses are cached for 15 minutes, keyed by a SHA-256 hash of the inputs.
   - The prompt payload is minimal and contains no personal data beyond the city.
 - **Resilience:**
-  - **Backup API key failover:** if the primary key is rejected (401/403, including Gemini's "API key not valid" 400), rate-limited or out of quota (429), overloaded (5xx) or unreachable, the request is retried once with the backup key. Bad requests and safety stops are not retried, because they would fail the same way.
+  - **Backup API key failover:** if the primary key is rejected (401/403, including Gemini's "API key not valid" 400), out of credits (402), rate-limited or out of quota (429), overloaded (5xx) or unreachable, the request is retried once with the backup key. Bad requests and safety stops are not retried, because they would fail the same way.
   - Claude also uses server-side model fallback.
   - Timeout and a single retry.
   - On a refusal, error or malformed output, the user still gets a rule-based briefing (`source: "rules"`).

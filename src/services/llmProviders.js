@@ -151,20 +151,40 @@ function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic'
     return client;
   };
 
-  return {
-    name: label,
-    async generate({ system, user, schema }) {
-      const response = await getClient().beta.messages.create({
-        model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        // Server-side fallback keeps answers flowing if the primary model declines.
+  // If the account/platform rejects the server-side fallback beta, remember it
+  // and send plain requests from then on.
+  let fallbackSupported = true;
+
+  async function create({ system, user, schema }) {
+    const params = {
+      model,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      // Narrating pre-computed facts is a light task: low effort = faster, cheaper.
+      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+      system,
+      messages: [{ role: 'user', content: user }],
+    };
+    if (!fallbackSupported) return getClient().messages.create(params);
+    try {
+      // Server-side fallback keeps answers flowing if the primary model declines.
+      return await getClient().beta.messages.create({
+        ...params,
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
-        // Narrating pre-computed facts is a light task: low effort = faster, cheaper.
-        output_config: { effort: 'low', format: { type: 'json_schema', schema } },
-        system,
-        messages: [{ role: 'user', content: user }],
       });
+    } catch (error) {
+      if (error?.status === 400 && /fallback|beta/i.test(error.message || '')) {
+        fallbackSupported = false;
+        return getClient().messages.create(params);
+      }
+      throw error;
+    }
+  }
+
+  return {
+    name: label,
+    async generate(request) {
+      const response = await create(request);
       if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
         throw outputError(`Claude stopped early: ${response.stop_reason}`);
       }
