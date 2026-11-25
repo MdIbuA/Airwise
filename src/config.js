@@ -33,7 +33,10 @@ const toInt = (value, fallback) => {
 const env = process.env;
 const read = (name) => (env[name] || '').trim();
 const keysByProvider = {
-  gemini: [read('GEMINI_API_KEY') || read('GOOGLE_API_KEY'), read('GEMINI_API_KEY_BACKUP') || read('GOOGLE_API_KEY_BACKUP')].filter(Boolean),
+  gemini: [
+    read('GEMINI_API_KEY') || read('GOOGLE_API_KEY'),
+    read('GEMINI_API_KEY_BACKUP') || read('GOOGLE_API_KEY_BACKUP'),
+  ].filter(Boolean),
   anthropic: [read('ANTHROPIC_API_KEY'), read('ANTHROPIC_API_KEY_BACKUP')].filter(Boolean),
 };
 /**
@@ -59,7 +62,12 @@ const config = Object.freeze({
   llmModel: read('AIRWISE_MODEL') || undefined,
   // For diagnostics (npm run check:ai): what was asked for, and where it came from.
   providerRequested: read('AIRWISE_LLM_PROVIDER'),
-  providerSource: env.AIRWISE_LLM_PROVIDER === undefined ? 'not set' : loadedFromFile.has('AIRWISE_LLM_PROVIDER') ? '.env file' : 'system environment',
+  providerSource:
+    env.AIRWISE_LLM_PROVIDER === undefined
+      ? 'not set'
+      : loadedFromFile.has('AIRWISE_LLM_PROVIDER')
+        ? '.env file'
+        : 'system environment',
   envFileFound: fs.existsSync(envFile),
   keyCounts: { gemini: keysByProvider.gemini.length, anthropic: keysByProvider.anthropic.length },
   // Per-request timeout for one model call, and the total time the user waits

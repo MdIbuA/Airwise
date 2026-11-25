@@ -24,7 +24,11 @@ async function startServer({ fail = false, rateLimitPerMinute = 100, assistant }
 }
 
 const postJson = (url, body) =>
-  fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
 
 test('API end-to-end', async (t) => {
   const srv = await startServer();
@@ -154,7 +158,9 @@ test('plan responds without waiting for the AI; narrative endpoint returns the A
       return JSON.stringify({ summary: 'AI summary', priorities: [{ action: 'A', impact: 'a' }], answer: 'AI answer' });
     },
   };
-  const srv = await startServer({ assistant: createAssistant({ enabled: true, providers: [slowProvider], logger: silentLogger }) });
+  const srv = await startServer({
+    assistant: createAssistant({ enabled: true, providers: [slowProvider], logger: silentLogger }),
+  });
   t.after(srv.close);
   const body = { city: 'Delhi', manualAqi: 250, question: 'Can my kid play outside?' };
 
@@ -178,4 +184,41 @@ test('narrative endpoint validates input like the plan endpoint', async (t) => {
   const off = await (await postJson(`${srv.base}/api/narrative`, { city: 'Delhi', manualAqi: 90 })).json();
   assert.equal(off.narrative.source, 'rules');
   assert.equal(off.narrative.reason, 'disabled');
+});
+
+test('cross-site and non-JSON POSTs are rejected (CSRF protection)', async (t) => {
+  const srv = await startServer();
+  t.after(srv.close);
+  const body = JSON.stringify({ city: 'Delhi', manualAqi: 90 });
+  const post = (headers) =>
+    fetch(`${srv.base}/api/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
+
+  assert.equal((await post({ 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+  assert.equal((await post({ 'Sec-Fetch-Site': 'same-site' })).status, 403);
+  assert.equal((await post({ 'Sec-Fetch-Site': 'same-origin' })).status, 200);
+  assert.equal((await post({ Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await post({ Origin: 'not a url' })).status, 403);
+  assert.equal((await post({ Origin: srv.base })).status, 200);
+  assert.equal((await post({ Origin: 'https://app.example', 'X-Forwarded-Host': 'app.example' })).status, 200);
+
+  const form = await fetch(`${srv.base}/api/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body,
+  });
+  assert.equal(form.status, 415);
+  assert.match((await form.json()).error, /application\/json/);
+});
+
+test('CSP also restricts base-uri and form-action', async (t) => {
+  const srv = await startServer();
+  t.after(srv.close);
+  const csp = (await fetch(`${srv.base}/`)).headers.get('content-security-policy');
+  assert.match(csp, /base-uri 'self'/);
+  assert.match(csp, /form-action 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
 });

@@ -2,7 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAssistant, templateNarrative, buildPromptPayload, shouldFailover, describeError } = require('../src/services/assistant');
+const {
+  createAssistant,
+  templateNarrative,
+  buildPromptPayload,
+  shouldFailover,
+  describeError,
+} = require('../src/services/assistant');
 const { buildPlan } = require('../src/services/recommendationEngine');
 const { makeProfile, silentLogger } = require('./helpers');
 
@@ -48,7 +54,10 @@ test('disabled assistant (or no providers) uses rules without calling a model', 
   const provider = fakeProvider(() => GOOD_JSON);
   const profile = makeProfile();
   const plan = buildPlan(profile, air);
-  assert.equal((await createAssistant({ enabled: false, providers: [provider] }).narrate(plan, profile, air)).source, 'rules');
+  assert.equal(
+    (await createAssistant({ enabled: false, providers: [provider] }).narrate(plan, profile, air)).source,
+    'rules',
+  );
   assert.equal((await createAssistant({ enabled: true, providers: [] }).narrate(plan, profile, air)).source, 'rules');
   assert.equal(provider.requests.length, 0);
 });
@@ -77,8 +86,12 @@ test('assistant falls back to rules on errors and malformed output', async () =>
   const profile = makeProfile();
   const plan = buildPlan(profile, air);
   const responders = [
-    () => { throw apiError(429); },
-    () => { throw apiError(422); }, // refusal / safety stop
+    () => {
+      throw apiError(429);
+    },
+    () => {
+      throw apiError(422);
+    }, // refusal / safety stop
     () => 'not json',
     () => '{"summary": 1}',
   ];
@@ -94,10 +107,16 @@ test('backup key takes over when the primary is rejected, rate-limited, overload
   const profile = makeProfile();
   const plan = buildPlan(profile, air);
   for (const failure of [apiError(401), apiError(403), apiError(429), apiError(503), new Error('ECONNRESET')]) {
-    const primary = fakeProvider(() => { throw failure; }, 'gemini#1');
+    const primary = fakeProvider(() => {
+      throw failure;
+    }, 'gemini#1');
     const backup = fakeProvider(() => GOOD_JSON, 'gemini#2');
     const logs = [];
-    const assistant = createAssistant({ enabled: true, providers: [primary, backup], logger: { warn: (m) => logs.push(m) } });
+    const assistant = createAssistant({
+      enabled: true,
+      providers: [primary, backup],
+      logger: { warn: (m) => logs.push(m) },
+    });
     const result = await assistant.narrate(plan, profile, air);
     assert.equal(result.source, 'ai', failure.message);
     assert.equal(primary.requests.length, 1);
@@ -114,7 +133,12 @@ test('backup key is not used for bad requests or refusals; rules are the last re
     const assistant = createAssistant({
       enabled: true,
       logger: silentLogger,
-      providers: [fakeProvider(() => { throw apiError(status); }), backup],
+      providers: [
+        fakeProvider(() => {
+          throw apiError(status);
+        }),
+        backup,
+      ],
     });
     assert.equal((await assistant.narrate(plan, profile, air)).source, 'rules');
     assert.equal(backup.requests.length, 0);
@@ -123,7 +147,14 @@ test('backup key is not used for bad requests or refusals; rules are the last re
   const bothDown = createAssistant({
     enabled: true,
     logger: silentLogger,
-    providers: [fakeProvider(() => { throw apiError(401); }), fakeProvider(() => { throw apiError(429); })],
+    providers: [
+      fakeProvider(() => {
+        throw apiError(401);
+      }),
+      fakeProvider(() => {
+        throw apiError(429);
+      }),
+    ],
   });
   assert.equal((await bothDown.narrate(plan, profile, air)).source, 'rules');
 });
@@ -147,7 +178,10 @@ test('prompt payload contains only plan facts, not raw free text or extra fields
 });
 
 test('describeError extracts the provider message and masks anything key-like', () => {
-  const gemini = Object.assign(new Error('{"error":{"code":400,"message":"API key not valid. Please pass a valid API key."}}'), { status: 401 });
+  const gemini = Object.assign(
+    new Error('{"error":{"code":400,"message":"API key not valid. Please pass a valid API key."}}'),
+    { status: 401 },
+  );
   assert.equal(describeError(gemini), '401 API key not valid. Please pass a valid API key.');
   // Fake key-shaped strings are assembled at runtime so secret scanners never see a key-like literal.
   const fakeGoogle = ['AI', 'za', 'FAKE', 'EXAMPLE', 'ONLY', '0000'].join('');
@@ -159,10 +193,20 @@ test('describeError extracts the provider message and masks anything key-like', 
 
 test('AI slower than the budget: rules now, AI result cached for the next request', async () => {
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const provider = fakeProvider(async () => { await gate; return GOOD_JSON; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const provider = fakeProvider(async () => {
+    await gate;
+    return GOOD_JSON;
+  });
   const logs = [];
-  const assistant = createAssistant({ enabled: true, providers: [provider], budgetMs: 30, logger: { warn: (m) => logs.push(m) } });
+  const assistant = createAssistant({
+    enabled: true,
+    providers: [provider],
+    budgetMs: 30,
+    logger: { warn: (m) => logs.push(m) },
+  });
   const profile = makeProfile();
   const plan = buildPlan(profile, air);
 
@@ -180,7 +224,9 @@ test('AI slower than the budget: rules now, AI result cached for the next reques
 
 test('a background AI failure after a timeout is swallowed (no unhandled rejection)', async () => {
   let fail;
-  const gate = new Promise((_, reject) => { fail = reject; });
+  const gate = new Promise((_, reject) => {
+    fail = reject;
+  });
   const provider = fakeProvider(() => gate);
   const assistant = createAssistant({ enabled: true, providers: [provider], budgetMs: 10, logger: silentLogger });
   const profile = makeProfile();

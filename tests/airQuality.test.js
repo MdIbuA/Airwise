@@ -37,7 +37,9 @@ test('network failures produce a 503 AppError', async () => {
 });
 
 test('upstream HTTP errors and missing data produce 502', async () => {
-  const badStatus = createAirQualityService({ fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }) });
+  const badStatus = createAirQualityService({
+    fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }),
+  });
   await assert.rejects(badStatus.getAirQuality('Delhi'), (error) => error.status === 502);
   const { fetchImpl } = makeFetch({ air: { current: {} } });
   await assert.rejects(createAirQualityService({ fetchImpl }).getAirQuality('Delhi'), (error) => error.status === 502);
@@ -56,5 +58,11 @@ test('summariseHourly finds the cleanest 2-hour daytime window and worst hour', 
 test('summariseHourly and findCleanestWindow handle missing data', () => {
   assert.equal(summariseHourly(undefined), null);
   assert.equal(summariseHourly({ time: [] }), null);
-  assert.equal(findCleanestWindow([{ time: 't', pm25: null }, { time: 't2', pm25: null }]), null);
+  assert.equal(
+    findCleanestWindow([
+      { time: 't', pm25: null },
+      { time: 't2', pm25: null },
+    ]),
+    null,
+  );
 });

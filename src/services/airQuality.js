@@ -70,10 +70,21 @@ function summariseHourly(hourly, currentTime) {
 /**
  * Air-quality service backed by the free, key-less Open-Meteo APIs.
  * `fetchImpl` is injectable so the service can be unit-tested offline.
+ *
+ * @param {object} [options]
+ * @param {typeof fetch} [options.fetchImpl] HTTP client (defaults to global fetch)
+ * @param {number} [options.timeoutMs] per-request timeout
+ * @param {number} [options.geocodeTtlMs] cache lifetime for city lookups
+ * @param {number} [options.airQualityTtlMs] cache lifetime for readings
  */
-function createAirQualityService({ fetchImpl = globalThis.fetch, timeoutMs = 6000, geocodeTtlMs, airQualityTtlMs } = {}) {
-  const geoCache = new TtlCache({ ttlMs: geocodeTtlMs || 86_400_000, maxEntries: 1000 });
-  const aqCache = new TtlCache({ ttlMs: airQualityTtlMs || 900_000, maxEntries: 500 });
+function createAirQualityService({
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 6000,
+  geocodeTtlMs = 86_400_000,
+  airQualityTtlMs = 900_000,
+} = {}) {
+  const geoCache = new TtlCache({ ttlMs: geocodeTtlMs, maxEntries: 1000 });
+  const aqCache = new TtlCache({ ttlMs: airQualityTtlMs, maxEntries: 500 });
 
   async function geocode(city) {
     const key = city.toLowerCase();

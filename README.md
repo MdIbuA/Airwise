@@ -78,10 +78,10 @@ It also produces a **shareable community alert** with no personal details. You c
 | Criterion | What we did | Where |
 |---|---|---|
 | **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A (Claude, tested live; Gemini also supported), with backup-key failover.</li></ul> | `recommendationEngine.js`, `assistant.js` |
-| **Code quality** | <ul><li>Layered design: routes, services, a pure rule engine and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc on public functions; ESLint (flat config) enforced in CI.</li><li>Small, single-purpose modules.</li></ul> | `src/`, `eslint.config.js` |
-| **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP and Permissions-Policy via helmet.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
+| **Code quality** | <ul><li>Layered design: Express 5 router, middleware, services, a pure rule engine split into one module per concern, and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc types checked by TypeScript (`checkJs`); ESLint with complexity, depth and length limits; Prettier. All enforced in CI.</li><li>Small, single-purpose modules: no file over ~250 lines, and the front end uses native ES modules.</li></ul> | `src/`, `eslint.config.js` |
+| **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP (including `base-uri` and `form-action`) and Permissions-Policy via helmet.</li><li>CSRF protection: cross-site POSTs are rejected via `Sec-Fetch-Site`/`Origin`, and non-JSON POSTs get `415`.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
 | **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Progressive loading: the plan renders in well under a second, and the AI briefing streams in afterwards within a 12 s budget (background-cached if slower).</li><li>Small LLM call with minimal thinking and a capped output, since it only narrates facts that are already computed; only the configured vendor SDK is loaded.</li><li>No front-end framework (≈10 kB of JS); 6 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
-| **Testing** | <ul><li>**86 unit/API tests** (~99% line coverage), fully offline.</li><li>**8 browser E2E tests** covering the full flow, progressive AI loading, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI (GitHub Actions badge above).</li></ul> | `tests/`, `.github/workflows/ci.yml` |
+| **Testing** | <ul><li>**88 unit/API tests** (~99% line coverage), fully offline.</li><li>**8 browser E2E tests** covering the full flow, progressive AI loading, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI (GitHub Actions badge above).</li></ul> | `tests/`, `.github/workflows/ci.yml` |
 | **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
 
 ---
@@ -204,7 +204,7 @@ Without an API key, AirWise still works fully in **rule-based mode**. If the air
 ### Quality checks
 ```bash
 npm run lint            # ESLint
-npm test                # 86 unit + API tests (node:test, fully offline)
+npm test                # 88 unit + API tests (node:test, fully offline)
 npm run test:coverage   # ~99% line coverage of src/
 npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
 npm run check           # all of the above
@@ -269,6 +269,7 @@ docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
 ## Security
 - **Input:** allow-list validation for every field (enums, numeric ranges, a Unicode-aware city pattern, 500-character question limit). Unknown fields are dropped.
 - **Headers:** `helmet` with a strict **Content-Security-Policy** (`'self'` only, no inline scripts or styles), `frame-ancestors 'none'`, `nosniff`; `x-powered-by` is disabled.
+- **CSRF:** POSTs must be `application/json` (otherwise `415`), and browser requests from another site are rejected (`403`) based on `Sec-Fetch-Site`, falling back to `Origin` for older browsers.
 - **Abuse limits:** a 10 kB JSON body limit, plus **rate limiting** on `/api` (30 requests/min per IP by default). The LLM-backed `/api/plan` gets a third of that, to cap cost.
 - **Browser features:** a `Permissions-Policy` header disables camera, microphone, geolocation, payment and USB.
 - **XSS:** the front end renders with `textContent` and DOM APIs only, so model output cannot inject HTML.
@@ -286,21 +287,52 @@ docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
 ## Project structure
 ```
 src/
-  server.js                 # entry point, graceful shutdown
-  app.js                    # Express app factory (dependency-injected)
-  config.js                 # env-driven config
-  data/factors.js           # AQI bands, emission & exposure factors
+  server.js                   # entry point, graceful shutdown
+  app.js                      # Express 5 app factory (dependency-injected, ~40 lines)
+  config.js                   # env-driven config (.env loader is BOM-safe)
+  routes/api.js               # JSON API router (no try/catch boilerplate: Express 5 async errors)
+  middleware/
+    security.js               # helmet + strict CSP, Permissions-Policy, CSRF guard, JSON-only POSTs, rate limits
+    errorHandler.js           # central error handler (only safe messages reach clients)
+  data/factors.js             # AQI bands, emission & exposure factors
   services/
-    airQuality.js           # Open-Meteo client + forecast analysis
-    recommendationEngine.js # decision logic
-    assistant.js            # grounded LLM narrative, key failover, rule fallback
-    llmProviders.js         # Claude + Gemini adapters (same interface)
-  utils/                    # validation, TTL cache, errors
-public/                     # accessible vanilla-JS front end
-docs/screenshots/           # README images (captured from the running app)
-tests/                      # node:test unit + API suites
-tests/e2e/                  # Playwright + axe-core browser tests
+    airQuality.js             # Open-Meteo client + forecast analysis
+    recommendationEngine.js   # public entry point → engine/
+    engine/                   # one module per concern
+      risk.js                 #   AQI band, household-adjusted risk, headline
+      routine.js              #   morning → night routine (forecast-aware)
+      indoorHacks.js          #   indoor air-quality actions
+      alternatives.js         #   sustainable swaps with quantified impact
+      impact.js               #   weekly/annual CO₂ totals
+      communityAlert.js       #   shareable neighbourhood message
+      shared.js               #   JSDoc types (Profile, Risk, Recommendation) + helpers
+    assistant.js              # grounded LLM narrative, time budget, key failover, rule fallback
+    llmProviders.js           # Claude + Gemini adapters (same interface)
+  utils/                      # validation, TTL cache, errors
+public/
+  index.html, styles.css      # accessible markup, dark glass theme
+  js/                         # native ES modules (CSP-safe, no build step)
+    main.js                   #   form controller / orchestration
+    aqiPanel.js               #   gauge, meters, cleanest-window strip
+    narrative.js              #   coach card + progressive AI loading
+    sections.js               #   impact tiles, routine, recommendation cards
+    community.js              #   copy / share alert
+    api.js, dom.js            #   fetch + safe DOM helpers (no innerHTML)
+scripts/check-ai.js           # live API-key diagnostics (npm run check:ai)
+tests/                        # node:test unit + API suites
+tests/e2e/                    # Playwright + axe-core browser tests
+docs/screenshots/             # README images (captured from the running app)
 ```
+
+## Code quality tooling
+| Check | Command | Enforced in CI |
+|---|---|---|
+| ESLint: recommended rules, plus `max-len` 120, `complexity` ≤ 15, `max-depth` ≤ 4, `max-params` ≤ 5, `no-shadow`, `eqeqeq` | `npm run lint` | ✅ |
+| Prettier formatting (+ `.editorconfig`) | `npm run format:check` | ✅ |
+| Static type checking: TypeScript `checkJs` over JSDoc types | `npm run typecheck` | ✅ |
+| Unit + API tests with coverage | `npm run test:coverage` | ✅ |
+| Browser E2E + axe WCAG 2.1 AA | `npm run test:e2e` | ✅ |
+| All of the above | `npm run check` | |
 
 ## Assumptions
 - **AQI scale:** AirWise uses the **US EPA AQI** reported by Open-Meteo (Copernicus CAMS model data). Local scales such as India's NAQI differ slightly. CAMS readings are modelled at roughly 10–40 km resolution, so they are not a street-level sensor reading.

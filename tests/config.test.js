@@ -3,7 +3,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const KEYS = ['GEMINI_API_KEY', 'GEMINI_API_KEY_BACKUP', 'GOOGLE_API_KEY', 'GOOGLE_API_KEY_BACKUP', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY_BACKUP', 'AIRWISE_LLM_PROVIDER', 'AIRWISE_DISABLE_LLM', 'NODE_ENV'];
+const KEYS = [
+  'GEMINI_API_KEY',
+  'GEMINI_API_KEY_BACKUP',
+  'GOOGLE_API_KEY',
+  'GOOGLE_API_KEY_BACKUP',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_API_KEY_BACKUP',
+  'AIRWISE_LLM_PROVIDER',
+  'AIRWISE_DISABLE_LLM',
+  'NODE_ENV',
+];
 
 /** Loads a fresh copy of config.js under the given environment. */
 function loadConfig(vars) {
@@ -55,5 +65,8 @@ test('.env saved by Windows Notepad (BOM + CRLF) is parsed correctly', () => {
   const parsed = parseEnvText('\uFEFFAIRWISE_LLM_PROVIDER=anthropic\r\nANTHROPIC_API_KEY=abc\r\n');
   assert.equal(parsed.AIRWISE_LLM_PROVIDER, 'anthropic');
   assert.equal(parsed.ANTHROPIC_API_KEY, 'abc');
-  assert.equal(Object.keys(parsed).some((k) => k.startsWith('\uFEFF')), false);
+  assert.equal(
+    Object.keys(parsed).some((k) => k.startsWith('\uFEFF')),
+    false,
+  );
 });

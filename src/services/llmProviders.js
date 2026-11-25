@@ -43,8 +43,25 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * constrained output. `models` is a preference-ordered list: if Google
  * reports a model as unavailable (404, e.g. retired for new users), the next
  * one is tried and remembered, so a model retirement can't silently turn AI off.
+ *
+ * @param {object} options
+ * @param {string} options.apiKey
+ * @param {string} options.model preferred model
+ * @param {readonly string[]} [options.models] fallback models, in order
+ * @param {number} options.timeoutMs per-call timeout
+ * @param {string} [options.label] provider name used in logs
+ * @param {object} [options.sdk] injected Google GenAI SDK module (tests)
+ * @param {number} [options.retryDelayMs] pause before retrying an overloaded model
  */
-function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemini', sdk, retryDelayMs = 800 }) {
+function createGeminiProvider({
+  apiKey,
+  model,
+  models = [],
+  timeoutMs,
+  label = 'gemini',
+  sdk = undefined,
+  retryDelayMs = 800,
+}) {
   const chain = [...new Set([model, ...(models || [])].filter(Boolean))];
   let active = 0;
   let client;
@@ -104,23 +121,36 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
    * Anything else (e.g. bad key) is thrown so the backup key can be tried; if
    * every model is out of quota, the 429 is thrown and the backup key is tried.
    */
+  const shouldTryNextModel = (error) => isModelUnavailable(error) || isQuotaExceeded(error);
+
+  /**
+   * Calls one model, retrying once after a short pause if it is overloaded.
+   * @returns {Promise<{ response?: any, skip?: any }>} a response, or the error that means "try the next model"
+   */
+  async function tryModel(modelName, request) {
+    try {
+      return { response: await callModel(modelName, request) };
+    } catch (error) {
+      if (shouldTryNextModel(error)) return { skip: error };
+      if (!isOverloaded(error)) throw error;
+    }
+    await sleep(retryDelayMs);
+    try {
+      return { response: await callModel(modelName, request) };
+    } catch (error) {
+      if (shouldTryNextModel(error) || isOverloaded(error)) return { skip: error };
+      throw error;
+    }
+  }
+
   async function callWithFallback(request) {
     let lastError;
     for (let i = active; i < chain.length; i += 1) {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          return await callModel(chain[i], request);
-        } catch (error) {
-          lastError = error;
-          if (isModelUnavailable(error)) {
-            if (i === active && active < chain.length - 1) active += 1;
-            break; // next model
-          }
-          if (isQuotaExceeded(error)) break; // next model (no point retrying this one now)
-          if (!isOverloaded(error)) throw error;
-          if (attempt === 0) await sleep(retryDelayMs);
-        }
-      }
+      const { response, skip } = await tryModel(chain[i], request);
+      if (response) return response;
+      lastError = skip;
+      // A retired/unavailable preferred model is skipped permanently (sticky).
+      if (isModelUnavailable(skip) && i === active && active < chain.length - 1) active += 1;
     }
     throw lastError;
   }
@@ -144,8 +174,17 @@ function createGeminiProvider({ apiKey, model, models, timeoutMs, label = 'gemin
   };
 }
 
-/** Anthropic Claude via the official @anthropic-ai/sdk, structured output. */
-function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic', sdk }) {
+/**
+ * Anthropic Claude via the official Anthropic SDK, with JSON-schema output.
+ *
+ * @param {object} options
+ * @param {string} options.apiKey
+ * @param {string} options.model
+ * @param {number} options.timeoutMs per-call timeout
+ * @param {string} [options.label] provider name used in logs
+ * @param {object} [options.sdk] injected Anthropic SDK module (tests)
+ */
+function createAnthropicProvider({ apiKey, model, timeoutMs, label = 'anthropic', sdk = undefined }) {
   let client;
   const getClient = () => {
     if (!client) {
@@ -219,7 +258,7 @@ const FACTORIES = Object.freeze({ gemini: createGeminiProvider, anthropic: creat
 
 /**
  * Builds one provider per API key (primary first, then backup).
- * @param {{ provider: 'gemini'|'anthropic', apiKeys: string[], model?: string, timeoutMs: number }} options
+ * @param {{ provider: string, apiKeys: string[], model?: string, timeoutMs: number }} options
  */
 function createProviders({ provider, apiKeys, model, timeoutMs }) {
   const factory = FACTORIES[provider];
@@ -235,4 +274,10 @@ function createProviders({ provider, apiKeys, model, timeoutMs }) {
   );
 }
 
-module.exports = { createProviders, createGeminiProvider, createAnthropicProvider, DEFAULT_MODELS, GEMINI_FALLBACK_MODELS };
+module.exports = {
+  createProviders,
+  createGeminiProvider,
+  createAnthropicProvider,
+  DEFAULT_MODELS,
+  GEMINI_FALLBACK_MODELS,
+};

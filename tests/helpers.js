@@ -46,8 +46,19 @@ function makeFetch({ geocode, air, fail = false } = {}) {
     calls.push(url);
     if (fail) throw new Error('network down');
     const body = url.includes('geocoding')
-      ? geocode ?? { results: [{ name: 'Delhi', admin1: 'Delhi', country: 'India', latitude: 28.6519, longitude: 77.2315, timezone: 'Asia/Kolkata' }] }
-      : air ?? makeAirQualityPayload();
+      ? (geocode ?? {
+          results: [
+            {
+              name: 'Delhi',
+              admin1: 'Delhi',
+              country: 'India',
+              latitude: 28.6519,
+              longitude: 77.2315,
+              timezone: 'Asia/Kolkata',
+            },
+          ],
+        })
+      : (air ?? makeAirQualityPayload());
     return { ok: true, status: 200, json: async () => body };
   };
   return { fetchImpl, calls };

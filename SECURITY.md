@@ -7,7 +7,8 @@ Please report it privately through GitHub's **Security → Report a vulnerabilit
 | Threat | Mitigation |
 |---|---|
 | Injection / malformed input | Allow-list validation of every field (enums, numeric ranges, Unicode city pattern, length caps); unknown fields dropped; 10 kB body limit |
-| XSS | Strict CSP (`'self'` only, no inline script/style); front end renders with `textContent` only |
+| CSRF | JSON-only POSTs (`415` otherwise); cross-site browser requests rejected via `Sec-Fetch-Site` / `Origin` (`403`) |
+| XSS | Strict CSP (`'self'` only, no inline script/style, `base-uri`/`form-action` locked); front end renders with `textContent` only |
 | Prompt injection | User text fenced in `<user_question>` and declared as data; model sees only engine facts; JSON-schema output validated server-side |
 | Secret leakage | API keys (`GEMINI_API_KEY[_BACKUP]` / `ANTHROPIC_API_KEY[_BACKUP]`) read from env on the server only; `.env` git-ignored; logs never contain prompts or keys |
 | Abuse / cost blow-up | Per-IP rate limits (tighter on the LLM-backed `/api/plan`); response caching; upstream timeouts |

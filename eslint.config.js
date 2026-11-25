@@ -11,7 +11,7 @@ module.exports = [
   },
   {
     files: ['public/**/*.js'],
-    languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.browser },
+    languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: globals.browser },
   },
   {
     rules: {
@@ -21,6 +21,13 @@ module.exports = [
       'prefer-const': 'error',
       'no-var': 'error',
       curly: ['error', 'multi-line'],
+      'max-len': ['error', { code: 120, ignoreUrls: true, ignoreRegExpLiterals: true }],
+      complexity: ['error', 15],
+      'max-depth': ['error', 4],
+      'max-params': ['error', 5],
+      'no-shadow': 'error',
+      'prefer-template': 'error',
+      'object-shorthand': 'error',
     },
   },
 ];

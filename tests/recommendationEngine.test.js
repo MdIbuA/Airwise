@@ -32,7 +32,10 @@ test('severe indoor combustion raises risk even on a clean day', () => {
 });
 
 test('risk score is capped at 100', () => {
-  const risk = engine.assessRisk(makeProfile({ hasChildren: true, heating: 'wood_coal', outdoorActivity: 'high' }), 500);
+  const risk = engine.assessRisk(
+    makeProfile({ hasChildren: true, heating: 'wood_coal', outdoorActivity: 'high' }),
+    500,
+  );
   assert.equal(risk.personalRiskScore, 100);
   assert.equal(risk.effectiveLevel, 5);
 });
@@ -58,7 +61,9 @@ test('impact summary does not double count carpool and transit', () => {
 
 test('walkers and WFH households get no commute swap', () => {
   for (const commuteMode of ['walk_cycle', 'work_from_home']) {
-    const plan = engine.buildPlan(makeProfile({ commuteMode, commuteKm: commuteMode === 'work_from_home' ? 0 : 5 }), { aqi: 250 });
+    const plan = engine.buildPlan(makeProfile({ commuteMode, commuteKm: commuteMode === 'work_from_home' ? 0 : 5 }), {
+      aqi: 250,
+    });
     assert.equal(ids(plan.alternatives).includes('car-to-transit'), false);
     assert.equal(ids(plan.alternatives).includes('bike-to-transit'), false);
   }
@@ -91,7 +96,10 @@ test('indoor hacks adapt to purifier ownership and are priority-sorted', () => {
   assert.equal(withPurifier.indoorHacks[0].id, 'purifier-placement');
   const order = { high: 0, medium: 1, low: 2 };
   const ranks = without.indoorHacks.map((h) => order[h.priority]);
-  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
+  assert.deepEqual(
+    ranks,
+    [...ranks].sort((a, b) => a - b),
+  );
 });
 
 test('routine uses the forecast cleanest window and moves exercise indoors on bad days', () => {
@@ -110,7 +118,9 @@ test('masks are recommended for sensitive groups from USG level, and not on good
 });
 
 test('every recommendation carries an impact explanation', () => {
-  const plan = engine.buildPlan(makeProfile({ commuteMode: 'two_wheeler', heating: 'kerosene', cooking: 'kerosene' }), { aqi: 260 });
+  const plan = engine.buildPlan(makeProfile({ commuteMode: 'two_wheeler', heating: 'kerosene', cooking: 'kerosene' }), {
+    aqi: 260,
+  });
   for (const item of [...plan.indoorHacks, ...plan.alternatives]) {
     assert.equal(typeof item.impact.explanation, 'string', item.id);
     assert.ok(item.impact.explanation.length > 10, item.id);

@@ -28,7 +28,9 @@ test('AirWise UI', async (t) => {
     const s = app.listen(0, () => resolve(s));
   });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch(process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {});
+  const browser = await chromium.launch(
+    process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
+  );
   t.after(async () => {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));
@@ -56,7 +58,10 @@ test('AirWise UI', async (t) => {
   await t.test('form page has no WCAG 2.1 AA violations', async () => {
     const { page } = await newPage();
     const { violations } = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-    assert.deepEqual(violations.map((v) => `${v.id}: ${v.help}`), []);
+    assert.deepEqual(
+      violations.map((v) => `${v.id}: ${v.help}`),
+      [],
+    );
     await page.context().close();
   });
 
@@ -84,7 +89,10 @@ test('AirWise UI', async (t) => {
       const { page } = await newPage({ colorScheme });
       await fillAndSubmit(page);
       const { violations } = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-      assert.deepEqual(violations.map((v) => `${colorScheme} ${v.id}: ${v.help} (${v.nodes.length})`), []);
+      assert.deepEqual(
+        violations.map((v) => `${colorScheme} ${v.id}: ${v.help} (${v.nodes.length})`),
+        [],
+      );
       await page.context().close();
     }
   });
@@ -131,7 +139,9 @@ test('AirWise UI', async (t) => {
 
 test('AI briefing arrives after the plan (progressive loading)', async (t) => {
   let releaseAi;
-  const aiGate = new Promise((resolve) => { releaseAi = resolve; });
+  const aiGate = new Promise((resolve) => {
+    releaseAi = resolve;
+  });
   const slowAi = {
     name: 'slow-ai',
     generate: async () => {
@@ -152,7 +162,9 @@ test('AI briefing arrives after the plan (progressive loading)', async (t) => {
   const server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
-  const browser = await chromium.launch(process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {});
+  const browser = await chromium.launch(
+    process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
+  );
   t.after(async () => {
     releaseAi();
     await browser.close();
@@ -173,7 +185,10 @@ test('AI briefing arrives after the plan (progressive loading)', async (t) => {
   assert.match(await card.innerText(), /The AI coach is answering/);
   assert.match(await page.locator('#alternatives').innerText(), /priority/i);
   const { violations } = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
-  assert.deepEqual(violations.map((v) => `${v.id}: ${v.help}`), []);
+  assert.deepEqual(
+    violations.map((v) => `${v.id}: ${v.help}`),
+    [],
+  );
 
   // Release the AI: the card upgrades in place and screen readers are told.
   releaseAi();

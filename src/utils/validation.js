@@ -23,17 +23,26 @@ const CITY_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}\s.,'-]*$/u;
 
 /** Strip control characters and collapse whitespace. */
 function cleanText(value) {
-  return String(value)
-    // eslint-disable-next-line no-control-regex -- stripping control chars is the intent
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    String(value)
+      // eslint-disable-next-line no-control-regex -- stripping control chars is the intent
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 function toBool(value) {
   return value === true || value === 'true' || value === 'on' || value === 1 || value === '1';
 }
 
+/**
+ * @param {unknown} value raw input
+ * @param {readonly number[]} range [min, max] inclusive
+ * @param {string} field name used in error messages
+ * @param {string[]} errors collected validation errors
+ * @returns {number}
+ */
 function toNumberInRange(value, [min, max], field, errors) {
   if (value === undefined || value === null || value === '') return min;
   const num = Number(value);

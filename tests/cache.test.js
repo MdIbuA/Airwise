@@ -36,6 +36,11 @@ test('TtlCache.wrap de-duplicates concurrent producers and does not cache failur
   assert.equal(b, 'value');
   assert.equal(calls, 1);
 
-  await assert.rejects(cache.wrap('bad', async () => { throw new Error('boom'); }), /boom/);
+  await assert.rejects(
+    cache.wrap('bad', async () => {
+      throw new Error('boom');
+    }),
+    /boom/,
+  );
   assert.equal(cache.get('bad'), undefined);
 });
