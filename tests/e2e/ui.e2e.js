@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const { AxeBuilder } = require('@axe-core/playwright');
 const { createApp } = require('../../src/app');
 const { createAirQualityService } = require('../../src/services/airQuality');
-const { createAssistant } = require('../../src/services/assistant');
+const { createAssistant } = require('../../src/services/ai');
 const { makeFetch, silentLogger } = require('../helpers');
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];

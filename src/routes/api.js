@@ -4,23 +4,37 @@ const express = require('express');
 const { validateProfile, validateCity, ENUMS } = require('../utils/validation');
 const { AppError } = require('../utils/errors');
 const { buildPlan, classifyAqi, buildCommunityAlert } = require('../services/recommendationEngine');
-const { templateNarrative } = require('../services/assistant');
+const { templateNarrative } = require('../services/ai/fallbackNarrative');
+
+/**
+ * @typedef {object} AirQualityService
+ * @property {(city: string) => Promise<import('../types').AirReading>} getAirQuality
+ *
+ * @typedef {object} AssistantService
+ * @property {boolean} isActive true when an LLM is configured
+ * @property {(plan: any, profile: any, air: any) => Promise<object>} narrate never rejects
+ */
 
 /**
  * JSON API. Express 5 forwards rejected promises from async handlers to the
  * error handler, so routes contain no try/catch boilerplate.
  *
  * @param {object} deps
- * @param {{ getAirQuality: Function }} deps.airQuality
- * @param {{ narrate: Function, isActive: boolean }} deps.assistant
+ * @param {AirQualityService} deps.airQuality
+ * @param {AssistantService} deps.assistant
  * @param {import('express').RequestHandler} deps.aiLimiter tighter limit for the LLM endpoint
+ * @returns {import('express').Router}
  */
 function createApiRouter({ airQuality, assistant, aiLimiter }) {
   const router = express.Router();
 
-  /** Validated profile + air reading (manual override or live, cached) + plan. */
+  /**
+   * Validated profile + air reading (manual override or live, cached) + plan.
+   * @param {unknown} body parsed JSON request body
+   */
   async function resolveRequest(body) {
     const profile = validateProfile(body);
+    /** @type {import('../types').AirReading} */
     const air =
       profile.manualAqi !== null
         ? {

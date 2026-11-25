@@ -8,10 +8,10 @@
  * Keys are never printed — only their count and length.
  */
 const config = require('../src/config');
-const { createProviders, DEFAULT_MODELS } = require('../src/services/llmProviders');
-const { describeError } = require('../src/services/assistant');
+const { createProviders, DEFAULT_MODELS, describeError } = require('../src/services/ai');
 
 const KEY_SITE = { gemini: 'aistudio.google.com/apikey', anthropic: 'platform.claude.com (API keys)' };
+/** @type {Record<string, string>} plain-language fix for each failure status */
 const HINTS = {
   401: `Key rejected. Re-copy it from ${KEY_SITE[config.llmProvider]} (no quotes/spaces), or create a new one.`,
   403:
@@ -43,7 +43,10 @@ const HINTS = {
   network: 'Could not reach the API. Check your internet connection, VPN or firewall.',
 };
 
-/** Prints the Gemini text models this key can use (helps pick AIRWISE_MODEL). */
+/**
+ * Prints the Gemini text models this key can use (helps pick AIRWISE_MODEL). Best-effort.
+ * @param {string} apiKey
+ */
 async function listGeminiModels(apiKey) {
   try {
     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
@@ -51,7 +54,9 @@ async function listGeminiModels(apiKey) {
       signal: AbortSignal.timeout(15000),
     });
     const data = await res.json();
-    const names = (data.models || [])
+    /** @type {{ name: string, supportedGenerationMethods?: string[] }[]} */
+    const models = data.models || [];
+    const names = models
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
       .map((m) => m.name.replace('models/', ''))
       .filter((n) => /^gemini/.test(n) && !/(tts|image|audio|live|embedding)/.test(n));
@@ -68,7 +73,10 @@ const TEST_SCHEMA = {
   additionalProperties: false,
 };
 
-/** Where the provider choice came from, and common misconfigurations. */
+/**
+ * Where the provider choice came from, and common misconfigurations.
+ * @param {string} model
+ */
 function printConfiguration(model) {
   console.log(`.env file: ${config.envFileFound ? 'found' : 'NOT FOUND in the project folder'}`);
   console.log(`Keys found: Gemini ${config.keyCounts.gemini}, Anthropic ${config.keyCounts.anthropic}`);
@@ -85,6 +93,7 @@ function printConfiguration(model) {
   console.log(`Provider: ${config.llmProvider}   Model: ${model}\n`);
 }
 
+/** Explains how to add a key when none is configured. */
 function printNoKeyHelp() {
   console.log('\n✖ No API key found, so AI is OFF (rule-based mode).');
   console.log('  Fix: create a .env file in the project folder containing either:');
@@ -93,7 +102,13 @@ function printNoKeyHelp() {
   console.log('  On Render: Dashboard → your service → Environment → add the same variables.');
 }
 
-/** Sends one tiny request with a key; prints the outcome. @returns {Promise<boolean>} */
+/**
+ * Sends one tiny request with a key and prints the outcome.
+ * @param {import('../src/types').LlmProvider} provider
+ * @param {number} index 0 = primary key, 1 = backup
+ * @param {string} model configured model (shown if the provider doesn't report one)
+ * @returns {Promise<boolean>} true when the key works
+ */
 async function testKey(provider, index, model) {
   const key = config.apiKeys[index];
   const label = index === 0 ? 'Primary key' : 'Backup key ';
@@ -109,11 +124,17 @@ async function testKey(provider, index, model) {
   } catch (error) {
     const suspicious = /^["'\s]|["'\s]$/.test(key) ? ' (⚠ has quotes/spaces at the ends!)' : '';
     console.log(`✖ ${label} (${key.length} chars)${suspicious} failed: ${describeError(error)}`);
-    console.log(`  → ${HINTS[error?.status ?? 'network'] || 'See the message above.'}`);
+    const status = /** @type {import('../src/types').HttpLikeError} */ (error)?.status ?? 'network';
+    console.log(`  → ${HINTS[status] || 'See the message above.'}`);
     return false;
   }
 }
 
+/**
+ * Prints the final verdict banner.
+ * @param {number} working keys that answered
+ * @param {number} total keys configured
+ */
 function printResult(working, total) {
   console.log('\n==================== RESULT ====================');
   console.log(
@@ -124,6 +145,7 @@ function printResult(working, total) {
   console.log('================================================');
 }
 
+/** Entry point: configuration report, then one live test per key. */
 async function main() {
   const model = config.llmModel || DEFAULT_MODELS[config.llmProvider];
   printConfiguration(model);

@@ -48,13 +48,25 @@
 
 const PRIORITY_ORDER = Object.freeze({ high: 0, medium: 1, low: 2 });
 
-/** Rounds to one decimal place. */
+/**
+ * Rounds to one decimal place.
+ * @param {number} n
+ * @returns {number}
+ */
 const round1 = (n) => Math.round(n * 10) / 10;
 
-/** Formats an ISO local time ("2026-11-23T14:00") as "14:00". */
+/**
+ * Formats an ISO local time ("2026-11-23T14:00") as "14:00".
+ * @param {string|null|undefined} iso
+ * @returns {string|null}
+ */
 const hhmm = (iso) => (iso ? iso.slice(11, 16) : null);
 
-/** ['a'] -> 'a'; ['a','b'] -> 'a and b'; ['a','b','c'] -> 'a, b and c'. */
+/**
+ * ['a'] -> 'a'; ['a','b'] -> 'a and b'; ['a','b','c'] -> 'a, b and c'.
+ * @param {string[]} items
+ * @returns {string}
+ */
 function joinWithAnd(items) {
   if (items.length <= 1) return items.join('');
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;

@@ -2,13 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {
-  createAssistant,
-  templateNarrative,
-  buildPromptPayload,
-  shouldFailover,
-  describeError,
-} = require('../src/services/assistant');
+const { createAssistant } = require('../src/services/ai/assistant');
+const { templateNarrative } = require('../src/services/ai/fallbackNarrative');
+const { buildPromptPayload } = require('../src/services/ai/prompt');
+const { shouldFailover, describeError } = require('../src/services/ai/errors');
 const { buildPlan } = require('../src/services/recommendationEngine');
 const { makeProfile, silentLogger } = require('./helpers');
 

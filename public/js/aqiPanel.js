@@ -3,42 +3,63 @@
  * Band colour is always paired with a text label (never colour alone).
  */
 
-import { SVG_NS, el, icon, setChildren, countUp, formatTime, hourOf, bandColor } from './dom.js';
+import { SVG_NS, afterPaint, bandColor, byId, countUp, el, formatTime, hourOf, icon, setChildren } from './dom.js';
 
-/** 270° ring gauge on a 0–500 AQI scale. Colour always paired with a text label. */
+/** @typedef {import('./types.js').PlanResponse} PlanResponse */
+/** @typedef {import('./types.js').Forecast} Forecast */
+
+const AQI_SCALE_MAX = 500;
+const WHO_PM25_24H = 15; // µg/m³
+const PM25_METER_MAX = 250; // µg/m³ shown as a full bar
+
+const GAUGE = Object.freeze({ size: 200, radius: 82, stroke: 16, sweep: 0.75, rotation: 135 });
+
+const DAY_START_HOUR = 6;
+const DAY_END_HOUR = 22;
+const DAY_TICKS = ['06:00', '10:00', '14:00', '18:00', '22:00'];
+
+/**
+ * One gauge ring (track or value arc).
+ * @param {string} className
+ * @param {number} arc visible arc length
+ * @param {number} circumference
+ * @returns {SVGCircleElement}
+ */
+function gaugeRing(className, arc, circumference) {
+  const centre = String(GAUGE.size / 2);
+  const ring = document.createElementNS(SVG_NS, 'circle');
+  ring.setAttribute('cx', centre);
+  ring.setAttribute('cy', centre);
+  ring.setAttribute('r', String(GAUGE.radius));
+  ring.setAttribute('fill', 'none');
+  ring.setAttribute('stroke-width', String(GAUGE.stroke));
+  ring.setAttribute('stroke-linecap', 'round');
+  ring.setAttribute('stroke-dasharray', `${arc} ${circumference}`);
+  ring.setAttribute('transform', `rotate(${GAUGE.rotation} ${centre} ${centre})`);
+  ring.setAttribute('class', className);
+  return ring;
+}
+
+/**
+ * 270° ring gauge on a 0–500 AQI scale with a counting number in the centre.
+ * @param {number} aqi
+ * @param {number} level AQI band level, drives the colour
+ * @returns {HTMLDivElement}
+ */
 function buildGauge(aqi, level) {
-  const size = 200;
-  const r = 82;
-  const circumference = 2 * Math.PI * r;
-  const arc = circumference * 0.75;
-  const fraction = Math.min(1, Math.max(0, aqi / 500));
+  const circumference = 2 * Math.PI * GAUGE.radius;
+  const arc = circumference * GAUGE.sweep;
+  const fraction = Math.min(1, Math.max(0, aqi / AQI_SCALE_MAX));
 
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  svg.setAttribute('viewBox', `0 0 ${GAUGE.size} ${GAUGE.size}`);
   svg.setAttribute('aria-hidden', 'true');
-  const ring = (cls) => {
-    const c = document.createElementNS(SVG_NS, 'circle');
-    c.setAttribute('cx', size / 2);
-    c.setAttribute('cy', size / 2);
-    c.setAttribute('r', r);
-    c.setAttribute('fill', 'none');
-    c.setAttribute('stroke-width', '16');
-    c.setAttribute('stroke-linecap', 'round');
-    c.setAttribute('stroke-dasharray', `${arc} ${circumference}`);
-    c.setAttribute('transform', `rotate(135 ${size / 2} ${size / 2})`);
-    c.setAttribute('class', cls);
-    return c;
-  };
-  const track = ring('gauge__track');
-  const value = ring('gauge__value');
+  const value = gaugeRing('gauge__value', arc, circumference);
   value.style.strokeDashoffset = String(arc);
-  svg.append(track, value);
-  // Animate after insertion.
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      value.style.strokeDashoffset = String(arc * (1 - fraction));
-    }),
-  );
+  svg.append(gaugeRing('gauge__track', arc, circumference), value);
+  afterPaint(() => {
+    value.style.strokeDashoffset = String(arc * (1 - fraction));
+  });
 
   const num = el('span', { className: 'gauge__num' }, '0');
   countUp(num, aqi);
@@ -51,23 +72,29 @@ function buildGauge(aqi, level) {
       { className: 'gauge__center' },
       el('span', { className: 'gauge__label' }, 'US AQI'),
       num,
-      el('span', { className: 'gauge__scale' }, 'of 500'),
+      el('span', { className: 'gauge__scale' }, `of ${AQI_SCALE_MAX}`),
     ),
   );
   wrap.style.setProperty('--band-color', bandColor(level));
   return wrap;
 }
 
+/**
+ * Labelled horizontal meter, announced to screen readers as "label: value".
+ * @param {string} label
+ * @param {string} valueText
+ * @param {number} percent fill 0–100
+ * @param {string} [extraClass] modifier class for the fill
+ * @returns {HTMLDivElement}
+ */
 function meter(label, valueText, percent, extraClass = '') {
   const fill = el('div', { className: `meter__fill ${extraClass}` });
   const pct = Math.max(2, Math.min(100, percent));
   // Keep gradient colours tied to the absolute 0–100 scale, not the fill width.
   if (extraClass) fill.style.backgroundSize = `${(100 / pct) * 100}% 100%`;
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      fill.style.width = `${pct}%`;
-    }),
-  );
+  afterPaint(() => {
+    fill.style.width = `${pct}%`;
+  });
   const bar = el('div', { className: 'meter__bar' }, fill);
   bar.setAttribute('role', 'img');
   bar.setAttribute('aria-label', `${label}: ${valueText}`);
@@ -79,59 +106,73 @@ function meter(label, valueText, percent, extraClass = '') {
   );
 }
 
-/** 06:00–22:00 strip with the cleanest forecast window and worst hour. */
+/**
+ * Horizontal position (percent) of an hour on the 06:00–22:00 strip.
+ * @param {number} hour
+ * @returns {string}
+ */
+function stripPosition(hour) {
+  const clamped = Math.min(DAY_END_HOUR, Math.max(DAY_START_HOUR, hour));
+  return `${((clamped - DAY_START_HOUR) / (DAY_END_HOUR - DAY_START_HOUR)) * 100}%`;
+}
+
+/**
+ * 06:00–22:00 strip highlighting the cleanest forecast window and the worst hour.
+ * The visual is decorative; the caption carries the same information as text.
+ * @param {Forecast|null} forecast
+ * @returns {HTMLDivElement|null}
+ */
 function buildDayStrip(forecast) {
-  if (!forecast?.cleanestWindow) return null;
-  const START = 6;
-  const SPAN = 16;
-  const pos = (h) => `${((Math.min(22, Math.max(START, h)) - START) / SPAN) * 100}%`;
-  const win = forecast.cleanestWindow;
+  const win = forecast?.cleanestWindow;
+  if (!forecast || !win) return null;
   const windowEl = el('div', { className: 'daystrip__window' });
-  windowEl.style.left = pos(hourOf(win.start));
-  windowEl.style.width = `calc(${pos(hourOf(win.end) + 1)} - ${pos(hourOf(win.start))})`;
+  windowEl.style.left = stripPosition(hourOf(win.start));
+  windowEl.style.width = `calc(${stripPosition(hourOf(win.end) + 1)} - ${stripPosition(hourOf(win.start))})`;
   const bar = el('div', { className: 'daystrip__bar' }, windowEl);
   if (forecast.worstHour) {
     const worst = el('div', { className: 'daystrip__worst' });
-    worst.style.left = pos(hourOf(forecast.worstHour.time));
+    worst.style.left = stripPosition(hourOf(forecast.worstHour.time));
     bar.append(worst);
   }
   bar.setAttribute('aria-hidden', 'true');
-  const ticks = el(
-    'div',
-    { className: 'daystrip__ticks' },
-    ...['06:00', '10:00', '14:00', '18:00', '22:00'].map((t) => el('span', {}, t)),
-  );
+  const ticks = el('div', { className: 'daystrip__ticks' }, ...DAY_TICKS.map((t) => el('span', {}, t)));
   ticks.setAttribute('aria-hidden', 'true');
 
+  const worstText = forecast.worstHour
+    ? ` · Worst hour: ${formatTime(forecast.worstHour.time)} (≈${forecast.worstHour.pm25} µg/m³)`
+    : '';
   const caption = el(
     'p',
     { className: 'daystrip__caption' },
     el('strong', {}, `Cleanest window today: ${formatTime(win.start)}–${formatTime(win.end)}`),
     ` (≈${win.meanPm25} µg/m³)`,
-    forecast.worstHour
-      ? ` · Worst hour: ${formatTime(forecast.worstHour.time)} (≈${forecast.worstHour.pm25} µg/m³)`
-      : '',
+    worstText,
   );
   return el('div', { className: 'daystrip' }, bar, ticks, caption);
 }
 
+/**
+ * Renders the AQI panel for a plan.
+ * @param {PlanResponse} data
+ */
 export function renderAqi(data) {
-  const card = document.getElementById('aqi-card');
+  const card = byId('aqi-card');
   const { air, risk } = data;
   card.style.setProperty('--band-color', bandColor(risk.level));
   const place = [air.location?.name, air.location?.region, air.location?.country].filter(Boolean).join(', ');
 
-  const bandPill = el('span', { className: 'band-pill' }, el('span', { className: 'band-dot' }), risk.category);
-  bandPill.querySelector('.band-dot').setAttribute('aria-hidden', 'true');
+  const dot = el('span', { className: 'band-dot' });
+  dot.setAttribute('aria-hidden', 'true');
+  const bandPill = el('span', { className: 'band-pill' }, dot, risk.category);
 
   const meters = [];
-  if (Number.isFinite(air.pm25)) {
-    const times = air.pm25 / 15;
+  if (typeof air.pm25 === 'number' && Number.isFinite(air.pm25)) {
+    const timesWho = (air.pm25 / WHO_PM25_24H).toFixed(1);
     meters.push(
       meter(
-        'PM2.5 vs WHO 24-h guideline (15 µg/m³)',
-        `${Math.round(air.pm25)} µg/m³ · ${times.toFixed(1)}×`,
-        (air.pm25 / 250) * 100,
+        `PM2.5 vs WHO 24-h guideline (${WHO_PM25_24H} µg/m³)`,
+        `${Math.round(air.pm25)} µg/m³ · ${timesWho}×`,
+        (air.pm25 / PM25_METER_MAX) * 100,
       ),
     );
   }

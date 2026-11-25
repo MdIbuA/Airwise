@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src/app');
 const { createAirQualityService } = require('../src/services/airQuality');
-const { createAssistant } = require('../src/services/assistant');
+const { createAssistant } = require('../src/services/ai');
 const { makeFetch, silentLogger } = require('./helpers');
 
 /** Starts the app on an ephemeral port and returns a base URL + closer. */

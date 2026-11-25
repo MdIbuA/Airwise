@@ -3,34 +3,50 @@
  * and the native share sheet where available.
  */
 
+import { byId } from './dom.js';
+
+const COPIED = 'Alert copied — paste it into your group chat.';
+const COPY_BLOCKED = 'Copy is blocked here — the text is selected, press Ctrl+C / ⌘+C.';
+
+/** @returns {string} */
+const alertText = () => byId('community-alert').textContent ?? '';
+
+/**
+ * Shows the alert text and the Share button only where the Web Share API exists.
+ * @param {string} text
+ */
 export function renderCommunityAlert(text) {
-  document.getElementById('community-alert').textContent = text;
-  document.getElementById('copy-status').textContent = '';
-  document.getElementById('share-alert').hidden = typeof navigator.share !== 'function';
+  byId('community-alert').textContent = text;
+  byId('copy-status').textContent = '';
+  byId('share-alert').hidden = typeof navigator.share !== 'function';
 }
 
-/** Wires the copy / share buttons (call once). */
+/** Selects the alert text so the user can copy it manually. */
+function selectAlertText() {
+  const range = document.createRange();
+  range.selectNodeContents(byId('community-alert'));
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+/** Wires the Copy / Share buttons (call once on load). */
 export function initCommunityAlert() {
-  document.getElementById('copy-alert').addEventListener('click', async () => {
-    const status = document.getElementById('copy-status');
-    const text = document.getElementById('community-alert').textContent;
+  byId('copy-alert').addEventListener('click', async () => {
+    const status = byId('copy-status');
     try {
-      await navigator.clipboard.writeText(text);
-      status.textContent = 'Alert copied — paste it into your group chat.';
+      await navigator.clipboard.writeText(alertText());
+      status.textContent = COPIED;
     } catch {
       // Clipboard can be blocked (permissions / insecure context): select the text instead.
-      const range = document.createRange();
-      range.selectNodeContents(document.getElementById('community-alert'));
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      status.textContent = 'Copy is blocked here — the text is selected, press Ctrl+C / ⌘+C.';
+      selectAlertText();
+      status.textContent = COPY_BLOCKED;
     }
   });
 
-  document.getElementById('share-alert').addEventListener('click', async () => {
+  byId('share-alert').addEventListener('click', async () => {
     try {
-      await navigator.share({ title: 'Air alert', text: document.getElementById('community-alert').textContent });
+      await navigator.share({ title: 'Air alert', text: alertText() });
     } catch {
       /* user cancelled the share sheet */
     }

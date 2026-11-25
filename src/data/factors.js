@@ -5,7 +5,15 @@
  * published-average figures; see README "Assumptions" for sources/caveats.
  */
 
-/** US EPA AQI bands (Open-Meteo reports US AQI). */
+/**
+ * @typedef {{ max: number, level: number, label: string, color: string }} AqiBand
+ * @typedef {{ label: string, co2Kg: number, pm25G: number, exposure: number }} CommuteFactor
+ * @typedef {'severe'|'high'|'moderate'|'low'|'none'} IndoorRisk
+ * @typedef {{ label: string, indoorRisk: IndoorRisk, co2KgPerWeek: number }} HeatingFactor
+ * @typedef {{ label: string, indoorRisk: IndoorRisk }} CookingFactor
+ */
+
+/** @type {readonly AqiBand[]} US EPA AQI bands (Open-Meteo reports US AQI). */
 const AQI_BANDS = Object.freeze([
   { max: 50, level: 0, label: 'Good', color: '#2e7d32' },
   { max: 100, level: 1, label: 'Moderate', color: '#8d6e00' },
@@ -20,6 +28,7 @@ const AQI_BANDS = Object.freeze([
  * co2Kg: well-to-wheel-ish average CO2; pm25G: exhaust PM2.5 in grams.
  * exposure: relative in-transit PM2.5 exposure (walking next to traffic = 1).
  */
+/** @type {Readonly<Record<string, CommuteFactor>>} */
 const COMMUTE = Object.freeze({
   car_petrol: { label: 'Petrol car', co2Kg: 0.17, pm25G: 0.005, exposure: 0.6 },
   car_diesel: { label: 'Diesel car', co2Kg: 0.16, pm25G: 0.03, exposure: 0.6 },
@@ -34,6 +43,7 @@ const COMMUTE_DAYS_PER_WEEK = 5;
 const TRIPS_PER_DAY = 2;
 
 /** Indoor combustion sources ranked by household PM2.5 contribution. */
+/** @type {Readonly<Record<string, HeatingFactor>>} */
 const HEATING = Object.freeze({
   wood_coal: { label: 'Wood / coal stove or angithi', indoorRisk: 'severe', co2KgPerWeek: 35 },
   kerosene: { label: 'Kerosene heater', indoorRisk: 'high', co2KgPerWeek: 20 },
@@ -43,6 +53,7 @@ const HEATING = Object.freeze({
   none: { label: 'No heating', indoorRisk: 'none', co2KgPerWeek: 0 },
 });
 
+/** @type {Readonly<Record<string, CookingFactor>>} */
 const COOKING = Object.freeze({
   biomass: { label: 'Wood / dung / crop-residue chulha', indoorRisk: 'severe' },
   kerosene: { label: 'Kerosene stove', indoorRisk: 'high' },

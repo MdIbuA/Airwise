@@ -11,7 +11,13 @@ const { weeklyCommuteKm } = require('./impact');
 const CARPOOL_SHARE = 0.5; // two people share one car
 const TWO_WHEELER_TRANSIT_SHARE = 0.6; // switch on 3 of 5 commute days
 
-/** CO₂ and exhaust PM2.5 saved per week by moving `share` of the commute to `targetMode`. */
+/**
+ * CO₂ and exhaust PM2.5 saved per week by moving `share` of the commute to `targetMode`.
+ * @param {Profile} profile
+ * @param {string} targetMode key of F.COMMUTE
+ * @param {number} [share] fraction of trips switched (0–1)
+ * @returns {{ co2: number, pm: number }}
+ */
 function commuteSavings(profile, targetMode, share = 1) {
   const km = weeklyCommuteKm(profile);
   const current = F.COMMUTE[profile.commuteMode];
@@ -24,6 +30,7 @@ function commuteSavings(profile, targetMode, share = 1) {
 
 /**
  * Car commuters: transit (largest lever) and carpooling (fallback).
+ * @param {Profile} profile
  * @returns {Recommendation[]}
  */
 function carAlternatives(profile) {
@@ -63,6 +70,8 @@ function carAlternatives(profile) {
 
 /**
  * Two-wheeler riders breathe exhaust directly: transit on bad days.
+ * @param {Profile} profile
+ * @param {Risk} risk
  * @returns {Recommendation}
  */
 function twoWheelerAlternative(profile, risk) {
@@ -85,6 +94,8 @@ function twoWheelerAlternative(profile, risk) {
 
 /**
  * On unhealthy days, staying home removes both the trip and the exposure.
+ * @param {Profile} profile
+ * @param {Risk} risk
  * @returns {Recommendation}
  */
 function workFromHomeAlternative(profile, risk) {
@@ -105,6 +116,8 @@ function workFromHomeAlternative(profile, risk) {
 
 /**
  * All commute-related swaps for this profile and risk level.
+ * @param {Profile} profile
+ * @param {Risk} risk
  * @returns {Recommendation[]}
  */
 function commuteAlternatives(profile, risk) {
@@ -118,6 +131,7 @@ function commuteAlternatives(profile, risk) {
 
 /**
  * Combustion heaters → clean heat; resistive electric → heat pump.
+ * @param {Profile} profile
  * @returns {Recommendation[]}
  */
 function heatingAlternatives(profile) {
@@ -153,8 +167,7 @@ function heatingAlternatives(profile) {
         impact: {
           kind: 'emissions',
           co2KgPerWeek: co2,
-          explanation:
-            `Roughly a third of the electricity, saving ~${co2} kg CO₂ per week ` + 'from power-plant emissions.',
+          explanation: `Roughly a third of the electricity, saving ~${co2} kg CO₂ per week from power-plant emissions.`,
         },
       },
     ];
@@ -164,6 +177,7 @@ function heatingAlternatives(profile) {
 
 /**
  * Solid-fuel / kerosene cooking → LPG, PNG or induction.
+ * @param {Profile} profile
  * @returns {Recommendation[]}
  */
 function cookingAlternatives(profile) {

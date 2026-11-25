@@ -1,7 +1,23 @@
 {
   "name": "airwise",
-  "version": "1.0.0",
-  "description": "GenAI assistant that helps families navigate winter smog with personalised, low-emission routines and indoor air quality guidance.",
+  "version": "1.2.0",
+  "description": "GenAI clean-air coach for smog season: live AQI, a household-specific low-emission routine, indoor air hacks and sustainable swaps, with the measurable impact of every choice.",
+  "keywords": [
+    "air-quality",
+    "smog",
+    "pm2.5",
+    "genai",
+    "claude",
+    "gemini",
+    "sustainability",
+    "accessibility"
+  ],
+  "homepage": "https://airwise-648g.onrender.com/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MdIbuA/Airwise.git"
+  },
+  "license": "MIT",
   "main": "src/server.js",
   "type": "commonjs",
   "engines": {
@@ -13,14 +29,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc -p jsconfig.json",
+    "typecheck": "tsc -p jsconfig.json && tsc -p jsconfig.browser.json",
     "test": "node --test \"tests/**/*.test.js\"",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" \"tests/**/*.test.js\"",
     "test:e2e": "node --test \"tests/e2e/*.e2e.js\"",
     "check:ai": "node scripts/check-ai.js",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:coverage && npm run test:e2e"
   },
-  "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
     "@google/genai": "^3.6.1",

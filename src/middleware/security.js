@@ -22,16 +22,22 @@ const CROSS_SITE_MESSAGE = 'Cross-site requests are not allowed.';
 /** Browser features the app never needs. */
 const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
 
-/** Security headers (helmet defaults + strict CSP + Permissions-Policy). */
+/**
+ * Security headers (helmet defaults + strict CSP + Permissions-Policy).
+ * @returns {import('express').RequestHandler[]}
+ */
 function securityHeaders() {
   const headers = helmet({ contentSecurityPolicy: { useDefaults: true, directives: CSP_DIRECTIVES } });
-  return [
-    headers,
-    (_req, res, next) => {
-      res.set('Permissions-Policy', PERMISSIONS_POLICY);
-      next();
-    },
-  ];
+  /**
+   * @param {import('express').Request} _req
+   * @param {import('express').Response} res
+   * @param {import('express').NextFunction} next
+   */
+  const permissionsPolicy = (_req, res, next) => {
+    res.set('Permissions-Policy', PERMISSIONS_POLICY);
+    next();
+  };
+  return [headers, permissionsPolicy];
 }
 
 /**
@@ -41,6 +47,10 @@ function securityHeaders() {
  *   (the proxy's forwarded host when deployed behind Render / Cloud Run).
  * Requests with neither header (curl, server-to-server, tests) are allowed:
  * CSRF is a browser-only attack.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} _res
+ * @param {import('express').NextFunction} next
+ * @returns {void}
  */
 function sameOriginOnly(req, _res, next) {
   if (req.method !== 'POST') return next();
@@ -60,7 +70,13 @@ function sameOriginOnly(req, _res, next) {
   return originHost === servedHost ? next() : next(new AppError(CROSS_SITE_MESSAGE, 403));
 }
 
-/** POST bodies must be JSON: blocks form-encoded / text/plain CSRF payloads outright. */
+/**
+ * POST bodies must be JSON: blocks form-encoded / text/plain CSRF payloads outright.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} _res
+ * @param {import('express').NextFunction} next
+ * @returns {void}
+ */
 function requireJson(req, _res, next) {
   if (req.method === 'POST' && !req.is('application/json')) {
     return next(new AppError('Content-Type must be application/json.', 415));

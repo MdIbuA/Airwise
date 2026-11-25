@@ -7,7 +7,7 @@ const {
   createGeminiProvider,
   createAnthropicProvider,
   DEFAULT_MODELS,
-} = require('../src/services/llmProviders');
+} = require('../src/services/ai/providers');
 
 const request = { system: 'sys', user: 'hello', schema: { type: 'object' } };
 

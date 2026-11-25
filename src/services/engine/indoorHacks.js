@@ -12,6 +12,8 @@ const BEDROOM_CADR = Math.round(F.TYPICAL_BEDROOM_M3 * F.PURIFIER_TARGET_ACH);
 
 /**
  * Filtration advice depends on whether the household already owns a purifier.
+ * @param {Profile} profile
+ * @param {number} level household-adjusted risk level
  * @returns {Recommendation}
  */
 function filtrationHack(profile, level) {
@@ -51,6 +53,7 @@ function filtrationHack(profile, level) {
 
 /**
  * Hacks that apply to every household; only "seal-gaps" priority depends on severity.
+ * @param {number} level household-adjusted risk level
  * @returns {Recommendation[]}
  */
 function generalHacks(level) {

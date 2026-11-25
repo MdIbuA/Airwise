@@ -12,13 +12,21 @@ const SCORE_FROM_LEVEL = 85;
 const SCORE_HIGH_ACTIVITY = 10;
 const SCORE_SENSITIVE = 5;
 
-/** Maps an AQI value to its US EPA band. */
+/**
+ * Maps an AQI value to its US EPA band (values above 500 are "Hazardous").
+ * @param {unknown} aqi
+ * @returns {import('../../data/factors').AqiBand}
+ */
 function classifyAqi(aqi) {
   const value = Math.max(0, Number(aqi) || 0);
-  return F.AQI_BANDS.find((band) => value <= band.max);
+  return F.AQI_BANDS.find((band) => value <= band.max) ?? F.AQI_BANDS[F.AQI_BANDS.length - 1];
 }
 
-/** Lists the sensitive groups present in the household. */
+/**
+ * Lists the sensitive groups present in the household.
+ * @param {Profile} profile
+ * @returns {string[]}
+ */
 function sensitiveGroups(profile) {
   const groups = [];
   if (profile.hasChildren) groups.push('children');
@@ -28,7 +36,13 @@ function sensitiveGroups(profile) {
   return groups;
 }
 
-/** One-line, household-aware summary of what today's air means. */
+/**
+ * One-line, household-aware summary of what today's air means.
+ * @param {import('../../data/factors').AqiBand} band
+ * @param {number} effectiveLevel
+ * @param {string[]} groups sensitive groups present
+ * @returns {string}
+ */
 function buildHeadline(band, effectiveLevel, groups) {
   const air = `Air is ${band.label.toLowerCase()}`;
   const who = groups.length ? ` for a household with ${joinWithAnd(groups)}` : '';

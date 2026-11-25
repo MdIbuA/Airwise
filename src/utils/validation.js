@@ -1,6 +1,17 @@
 'use strict';
 
+/**
+ * Input validation. Everything from the client is allow-listed: enum values
+ * must match exactly, numbers must be in range, text is cleaned and length
+ * capped, and unknown fields are dropped, so nothing unexpected reaches the
+ * rule engine or the LLM prompt.
+ */
+
 const { AppError } = require('./errors');
+
+/** @typedef {import('../services/engine/shared').Profile} Profile */
+/** @typedef {keyof typeof ENUMS} EnumField */
+/** @typedef {readonly [number, number]} Range inclusive [min, max] */
 
 /** Allowed enum values. Anything else is rejected rather than coerced. */
 const ENUMS = Object.freeze({
@@ -13,15 +24,27 @@ const ENUMS = Object.freeze({
 const LIMITS = Object.freeze({
   cityMaxLength: 80,
   questionMaxLength: 500,
-  householdSize: [1, 20],
-  commuteKm: [0, 200],
-  aqi: [0, 500],
+  /** @type {Range} */ householdSize: [1, 20],
+  /** @type {Range} */ commuteKm: [0, 200],
+  /** @type {Range} */ aqi: [0, 500],
+});
+
+/** Defaults applied when an optional field is omitted. */
+const DEFAULTS = Object.freeze({
+  commuteMode: 'public_transport',
+  heating: 'none',
+  cooking: 'lpg_png',
+  outdoorActivity: 'moderate',
 });
 
 // Letters (any script), spaces and common punctuation found in place names.
 const CITY_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}\s.,'-]*$/u;
 
-/** Strip control characters and collapse whitespace. */
+/**
+ * Strips control characters and collapses whitespace.
+ * @param {unknown} value
+ * @returns {string}
+ */
 function cleanText(value) {
   return (
     String(value)
@@ -32,19 +55,28 @@ function cleanText(value) {
   );
 }
 
+/**
+ * Accepts JSON booleans and HTML-checkbox style values ("on", "true", 1).
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 function toBool(value) {
   return value === true || value === 'true' || value === 'on' || value === 1 || value === '1';
 }
 
+/** @param {unknown} value */
+const isBlank = (value) => value === undefined || value === null || value === '';
+
 /**
+ * Parses a number within an inclusive range; records an error otherwise.
  * @param {unknown} value raw input
- * @param {readonly number[]} range [min, max] inclusive
+ * @param {Range} range [min, max] inclusive
  * @param {string} field name used in error messages
  * @param {string[]} errors collected validation errors
- * @returns {number}
+ * @returns {number} the parsed value, or `min` when blank/invalid
  */
 function toNumberInRange(value, [min, max], field, errors) {
-  if (value === undefined || value === null || value === '') return min;
+  if (isBlank(value)) return min;
   const num = Number(value);
   if (!Number.isFinite(num) || num < min || num > max) {
     errors.push(`${field} must be a number between ${min} and ${max}.`);
@@ -53,18 +85,28 @@ function toNumberInRange(value, [min, max], field, errors) {
   return num;
 }
 
-function pickEnum(value, field, fallback, errors) {
-  if (value === undefined || value === null || value === '') return fallback;
-  if (!ENUMS[field].includes(value)) {
-    errors.push(`${field} must be one of: ${ENUMS[field].join(', ')}.`);
-    return fallback;
+/**
+ * Accepts only an allow-listed enum value; records an error otherwise.
+ * @param {unknown} value raw input
+ * @param {EnumField} field
+ * @param {string[]} errors collected validation errors
+ * @returns {string} the value, or the field's default when blank/invalid
+ */
+function pickEnum(value, field, errors) {
+  if (isBlank(value)) return DEFAULTS[field];
+  const allowed = /** @type {readonly string[]} */ (ENUMS[field]);
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    errors.push(`${field} must be one of: ${allowed.join(', ')}.`);
+    return DEFAULTS[field];
   }
   return value;
 }
 
 /**
  * Validates a city name for the geocoder.
- * @returns {string}
+ * @param {unknown} raw
+ * @returns {string} the cleaned city name
+ * @throws {AppError} when missing, too long or containing unsupported characters
  */
 function validateCity(raw) {
   const city = cleanText(raw ?? '');
@@ -77,48 +119,57 @@ function validateCity(raw) {
 
 /**
  * Validates and normalises the household profile sent by the client.
- * Unknown fields are dropped (allow-list), so nothing unexpected reaches
- * the rule engine or the LLM prompt.
+ * All problems are collected and reported together.
+ * @param {unknown} body parsed JSON request body
+ * @returns {Profile}
+ * @throws {AppError} 400 with `details` listing every invalid field
  */
 function validateProfile(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new AppError('Request body must be a JSON object.');
   }
+  const input = /** @type {Record<string, unknown>} */ (body);
+  /** @type {string[]} */
   const errors = [];
-  let city;
+
+  let city = '';
   try {
-    city = validateCity(body.city);
+    city = validateCity(input.city);
   } catch (error) {
-    errors.push(error.message);
+    errors.push(error instanceof Error ? error.message : 'Invalid city.');
   }
 
-  const question = body.question ? cleanText(body.question) : '';
+  const question = input.question ? cleanText(input.question) : '';
   if (question.length > LIMITS.questionMaxLength) {
     errors.push(`question must be at most ${LIMITS.questionMaxLength} characters.`);
   }
 
+  // Evaluated in field order so error messages are listed in form order.
+  const householdSize = Math.round(toNumberInRange(input.householdSize, LIMITS.householdSize, 'householdSize', errors));
+  const commuteMode = pickEnum(input.commuteMode, 'commuteMode', errors);
+  const commuteKm = toNumberInRange(input.commuteKm, LIMITS.commuteKm, 'commuteKm', errors);
+
+  /** @type {Profile} */
   const profile = {
     city,
-    householdSize: Math.round(toNumberInRange(body.householdSize, LIMITS.householdSize, 'householdSize', errors)),
-    hasChildren: toBool(body.hasChildren),
-    hasElderly: toBool(body.hasElderly),
-    hasRespiratoryCondition: toBool(body.hasRespiratoryCondition),
-    isPregnant: toBool(body.isPregnant),
-    commuteMode: pickEnum(body.commuteMode, 'commuteMode', 'public_transport', errors),
-    commuteKm: toNumberInRange(body.commuteKm, LIMITS.commuteKm, 'commuteKm', errors),
-    heating: pickEnum(body.heating, 'heating', 'none', errors),
-    cooking: pickEnum(body.cooking, 'cooking', 'lpg_png', errors),
-    hasAirPurifier: toBool(body.hasAirPurifier),
-    outdoorActivity: pickEnum(body.outdoorActivity, 'outdoorActivity', 'moderate', errors),
+    householdSize,
+    hasChildren: toBool(input.hasChildren),
+    hasElderly: toBool(input.hasElderly),
+    hasRespiratoryCondition: toBool(input.hasRespiratoryCondition),
+    isPregnant: toBool(input.isPregnant),
+    commuteMode,
+    commuteKm: commuteMode === 'work_from_home' ? 0 : commuteKm,
+    heating: pickEnum(input.heating, 'heating', errors),
+    cooking: pickEnum(input.cooking, 'cooking', errors),
+    hasAirPurifier: toBool(input.hasAirPurifier),
+    outdoorActivity: pickEnum(input.outdoorActivity, 'outdoorActivity', errors),
     question,
     // Optional manual AQI override, used when live data is unavailable.
-    manualAqi:
-      body.manualAqi === undefined || body.manualAqi === null || body.manualAqi === ''
-        ? null
-        : Math.round(toNumberInRange(body.manualAqi, LIMITS.aqi, 'manualAqi', errors)),
+    manualAqi: isBlank(input.manualAqi)
+      ? null
+      : Math.round(toNumberInRange(input.manualAqi, LIMITS.aqi, 'manualAqi', errors)),
   };
 
-  if (profile.commuteMode === 'work_from_home') profile.commuteKm = 0;
   if (errors.length) throw new AppError('Invalid input.', 400, errors);
   return profile;
 }

@@ -78,10 +78,10 @@ It also produces a **shareable community alert** with no personal details. You c
 | Criterion | What we did | Where |
 |---|---|---|
 | **Problem statement alignment** | <ul><li>Live, location-specific AQI and hourly forecast.</li><li>Advice adjusted to the household's lifestyle: sensitive members, commute, heating, cooking, purifier, exercise.</li><li>Low-emission routine, indoor hacks and sustainable swaps, each with a **quantified impact** (exposure %, CO₂ kg/week, PM2.5 g/week).</li><li>A community alert for families *and communities*.</li><li>GenAI briefing and Q&A (Claude, tested live; Gemini also supported), with backup-key failover.</li></ul> | `recommendationEngine.js`, `assistant.js` |
-| **Code quality** | <ul><li>Layered design: Express 5 router, middleware, services, a pure rule engine split into one module per concern, and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>JSDoc types checked by TypeScript (`checkJs`); ESLint with complexity, depth and length limits; Prettier. All enforced in CI.</li><li>Small, single-purpose modules: no file over ~250 lines, and the front end uses native ES modules.</li></ul> | `src/`, `eslint.config.js` |
+| **Code quality** | <ul><li>Layered design: Express 5 router, middleware, services, a pure rule engine split into one module per concern, and reference data.</li><li>Dependency injection, so the app is testable offline.</li><li>**Strict static typing:** TypeScript `checkJs` with `strict` on server *and* browser code, 0 errors; every function has JSDoc (118/118).</li><li>ESLint with complexity, depth, parameter and length limits; Prettier and `.editorconfig`. All enforced in CI.</li><li>Small, single-purpose modules: the engine and AI layer are split one concern per file, and the front end uses native ES modules.</li><li>Named constants instead of magic numbers; no duplicated request or rendering code.</li><li>[Architecture guide](docs/ARCHITECTURE.md), [contributing guide](CONTRIBUTING.md) and [changelog](CHANGELOG.md).</li><li>Refactors verified by a 6,912-case golden-master snapshot.</li></ul> | `src/`, `docs/ARCHITECTURE.md` |
 | **Security** | <ul><li>Allow-list validation.</li><li>Strict CSP (including `base-uri` and `form-action`) and Permissions-Policy via helmet.</li><li>CSRF protection: cross-site POSTs are rejected via `Sec-Fetch-Site`/`Origin`, and non-JSON POSTs get `415`.</li><li>Per-IP rate limits, tighter on the LLM-backed endpoint.</li><li>Prompt-injection fencing and a schema-validated LLM output.</li><li>The API key stays on the server.</li><li>Non-root container and `npm audit` in CI.</li></ul> | `SECURITY.md`, `app.js`, `validation.js` |
 | **Efficiency** | <ul><li>TTL + LRU caches for geocoding (24 h), air quality (15 min, ~1 km grid) and LLM output (15 min).</li><li>In-flight request de-duplication.</li><li>gzip compression; 6 s upstream timeouts.</li><li>Progressive loading: the plan renders in well under a second, and the AI briefing streams in afterwards within a 12 s budget (background-cached if slower).</li><li>Small LLM call with minimal thinking and a capped output, since it only narrates facts that are already computed; only the configured vendor SDK is loaded.</li><li>No front-end framework (≈10 kB of JS); 6 runtime dependencies.</li></ul> | `cache.js`, `airQuality.js`, `assistant.js` |
-| **Testing** | <ul><li>**88 unit/API tests** (~99% line coverage), fully offline.</li><li>**8 browser E2E tests** covering the full flow, progressive AI loading, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI (GitHub Actions badge above).</li></ul> | `tests/`, `.github/workflows/ci.yml` |
+| **Testing** | <ul><li>**92 unit/API tests** (99.6% line coverage), fully offline.</li><li>**8 browser E2E tests** covering the full flow, progressive AI loading, keyboard-only use, clipboard, a 320 px layout and the error path.</li><li>All run in CI (GitHub Actions badge above).</li></ul> | `tests/`, `.github/workflows/ci.yml` |
 | **Accessibility** | <ul><li>**Automated axe-core WCAG 2.1 AA scan with zero violations** on the form and on the results page, in light and dark mode.</li><li>Labelled controls, skip link, live region, focus management.</li><li>Colour plus text for severity; 44 px targets; reduced motion; works at 320 px.</li></ul> | `public/`, `tests/e2e/ui.e2e.js` |
 
 ---
@@ -125,7 +125,7 @@ JSON response ──► rendered with DOM APIs only (no innerHTML)
 
 Every number the user sees comes from the engine. The model is only allowed to use numbers that appear in the plan.
 
-### Decision logic (`src/services/recommendationEngine.js`)
+### Decision logic (`src/services/engine/`)
 1. **AQI band:** US EPA breakpoints (Good → Hazardous).
 2. **Personal risk:**
    - Households with sensitive members (children, people over 65, asthma/COPD/heart conditions, pregnancy) are treated **one band higher**.
@@ -153,8 +153,8 @@ Every number the user sees comes from the engine. The model is only allowed to u
 6. **Community alert:** a short message with no personal details. It covers the AQI, the cleanest and worst hours and group-specific advice, and asks neighbours not to burn waste and to check on elderly people. A copy/share button sends it to group chats.
 7. **Impact summary:** total CO₂ avoided per week and per year, plus a tree-equivalent. Mutually exclusive options such as carpool vs. transit are not double-counted.
 
-### GenAI layer (`src/services/assistant.js`)
-- **Providers:** both sit behind one small adapter interface (`src/services/llmProviders.js`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
+### GenAI layer (`src/services/ai/`)
+- **Providers:** both sit behind one small adapter interface (`src/services/ai/providers/`), so the rest of the app is vendor-neutral. Choose with `AIRWISE_LLM_PROVIDER` and `AIRWISE_MODEL`.
   - **Claude (default, verified in live testing):** `claude-opus-5-5` via the official `@anthropic-ai/sdk`, at low effort because it only narrates facts that are already computed. It uses server-side model fallback, and if an account rejects that feature, AirWise retries without it automatically.
   - **Google Gemini (alternative):** `gemini-3.8-flash` via the official `@google/genai` SDK. It handles model problems automatically:
     - **Retired or unavailable model (HTTP 404):** AirWise moves to the next model in its list (`gemini-3.8-flash` → `3.7-flash` → `3.6-flash` → `3.5-flash` → `3.5-flash-lite` → `gemini-flash-latest` → `gemini-flash-lite-latest`) and keeps using it.
@@ -204,7 +204,7 @@ Without an API key, AirWise still works fully in **rule-based mode**. If the air
 ### Quality checks
 ```bash
 npm run lint            # ESLint
-npm test                # 88 unit + API tests (node:test, fully offline)
+npm test                # 92 unit + API tests (node:test, fully offline)
 npm run test:coverage   # ~99% line coverage of src/
 npm run test:e2e        # browser E2E + axe-core WCAG 2.1 AA scan (needs Chromium: npx playwright install chromium)
 npm run check           # all of the above
@@ -285,43 +285,39 @@ docker run -p 8080:8080 -e ANTHROPIC_API_KEY=... airwise
 - **Verified automatically:** an axe-core WCAG 2.1 AA scan (zero violations in light and dark mode), keyboard-only navigation and a 320 px viewport are all tested in CI.
 
 ## Project structure
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the request flow, module responsibilities and design decisions.
 ```
 src/
   server.js                   # entry point, graceful shutdown
-  app.js                      # Express 5 app factory (dependency-injected, ~40 lines)
-  config.js                   # env-driven config (.env loader is BOM-safe)
-  routes/api.js               # JSON API router (no try/catch boilerplate: Express 5 async errors)
+  app.js                      # Express 5 app factory (dependency-injected)
+  config.js                   # env/.env config (BOM-safe), defaults, provider selection
+  types.js                    # shared JSDoc types (AirReading, Narrative, LlmProvider, …)
+  routes/api.js               # JSON API router (Express 5: no try/catch boilerplate)
   middleware/
     security.js               # helmet + strict CSP, Permissions-Policy, CSRF guard, JSON-only POSTs, rate limits
     errorHandler.js           # central error handler (only safe messages reach clients)
-  data/factors.js             # AQI bands, emission & exposure factors
+  data/factors.js             # typed reference data: AQI bands, emission & exposure factors
   services/
-    airQuality.js             # Open-Meteo client + forecast analysis
+    airQuality.js             # Open-Meteo client, caching, forecast analysis
     recommendationEngine.js   # public entry point → engine/
-    engine/                   # one module per concern
-      risk.js                 #   AQI band, household-adjusted risk, headline
-      routine.js              #   morning → night routine (forecast-aware)
-      indoorHacks.js          #   indoor air-quality actions
-      alternatives.js         #   sustainable swaps with quantified impact
-      impact.js               #   weekly/annual CO₂ totals
-      communityAlert.js       #   shareable neighbourhood message
-      shared.js               #   JSDoc types (Profile, Risk, Recommendation) + helpers
-    assistant.js              # grounded LLM narrative, time budget, key failover, rule fallback
-    llmProviders.js           # Claude + Gemini adapters (same interface)
+    engine/                   # deterministic rule engine, one concern per module
+      risk.js · routine.js · indoorHacks.js · alternatives.js · impact.js · communityAlert.js
+      shared.js               #   Profile / Risk / Recommendation types + helpers
+    ai/                       # generative-AI layer
+      assistant.js            #   cache, 12 s budget, key failover, rule-based fallback
+      prompt.js               #   system prompt, output schema, PII-free payload
+      fallbackNarrative.js    #   rule-based briefing
+      errors.js               #   error classification, log-safe messages
+      providers/              #   claude (anthropic.js) + gemini.js behind one interface
   utils/                      # validation, TTL cache, errors
 public/
   index.html, styles.css      # accessible markup, dark glass theme
-  js/                         # native ES modules (CSP-safe, no build step)
-    main.js                   #   form controller / orchestration
-    aqiPanel.js               #   gauge, meters, cleanest-window strip
-    narrative.js              #   coach card + progressive AI loading
-    sections.js               #   impact tiles, routine, recommendation cards
-    community.js              #   copy / share alert
-    api.js, dom.js            #   fetch + safe DOM helpers (no innerHTML)
+  js/                         # typed native ES modules (no build step)
+    main.js · aqiPanel.js · narrative.js · sections.js · community.js · api.js · dom.js · types.js
 scripts/check-ai.js           # live API-key diagnostics (npm run check:ai)
 tests/                        # node:test unit + API suites
 tests/e2e/                    # Playwright + axe-core browser tests
-docs/screenshots/             # README images (captured from the running app)
+docs/                         # architecture guide, README screenshots
 ```
 
 ## Code quality tooling
@@ -329,7 +325,7 @@ docs/screenshots/             # README images (captured from the running app)
 |---|---|---|
 | ESLint: recommended rules, plus `max-len` 120, `complexity` ≤ 15, `max-depth` ≤ 4, `max-params` ≤ 5, `no-shadow`, `eqeqeq` | `npm run lint` | ✅ |
 | Prettier formatting (+ `.editorconfig`) | `npm run format:check` | ✅ |
-| Static type checking: TypeScript `checkJs` over JSDoc types | `npm run typecheck` | ✅ |
+| Strict static type checking: TypeScript `checkJs` + `strict`, server and browser code | `npm run typecheck` | ✅ |
 | Unit + API tests with coverage | `npm run test:coverage` | ✅ |
 | Browser E2E + axe WCAG 2.1 AA | `npm run test:e2e` | ✅ |
 | All of the above | `npm run check` | |

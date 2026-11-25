@@ -28,6 +28,11 @@ function buildCommunityAlert(plan, air, city) {
   return lines.join('\n');
 }
 
+/**
+ * Protective advice for the group, by AQI band level.
+ * @param {number} level
+ * @returns {string}
+ */
 function advice(level) {
   if (level >= 3) return 'Kids, elders and anyone with asthma: stay indoors where possible; N95 masks outside.';
   if (level === 2) return 'Sensitive groups: limit outdoor exertion; N95 masks near traffic.';

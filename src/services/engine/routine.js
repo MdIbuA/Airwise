@@ -9,6 +9,11 @@ const { hhmm } = require('./shared');
 
 const DEFAULT_WINDOW = 'early afternoon (usually 13:00–16:00 in winter)';
 
+/**
+ * @param {Risk} risk
+ * @param {boolean} needsMask
+ * @returns {string[]}
+ */
 function morning(risk, needsMask) {
   return [
     risk.effectiveLevel >= 2
@@ -22,6 +27,12 @@ function morning(risk, needsMask) {
   ];
 }
 
+/**
+ * @param {Profile} profile
+ * @param {Risk} risk
+ * @param {string} windowText when to ventilate / exercise, e.g. "14:00–15:00"
+ * @returns {string[]}
+ */
 function daytime(profile, risk, windowText) {
   const actions = [
     `Open windows for 10–15 minutes around ${windowText}, when PM2.5 is forecast to be lowest, then close them.`,
@@ -45,6 +56,10 @@ function daytime(profile, risk, windowText) {
   return actions;
 }
 
+/**
+ * @param {Profile} profile
+ * @returns {string[]}
+ */
 function evening(profile) {
   const dirtyCooking = profile.cooking === 'biomass' || profile.cooking === 'kerosene';
   return [
@@ -58,6 +73,10 @@ function evening(profile) {
   ];
 }
 
+/**
+ * @param {Profile} profile
+ * @returns {string[]}
+ */
 function night(profile) {
   const combustionHeater = profile.heating === 'wood_coal' || profile.heating === 'kerosene';
   return [

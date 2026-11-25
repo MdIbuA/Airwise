@@ -4,8 +4,8 @@
 
 /**
  * @param {string} url
- * @param {object} body
- * @returns {Promise<{ ok: boolean, status: number, data: any }>}
+ * @param {object} body serialised as JSON
+ * @returns {Promise<{ ok: boolean, status: number, data: any }>} `data` is `{}` when the body isn't JSON
  */
 export async function postJson(url, body) {
   const response = await fetch(url, {

@@ -158,3 +158,17 @@ test('headline lists sensitive groups in natural language', () => {
   assert.match(two.headline, /household with children and older adults\./);
   assert.match(three.headline, /children, older adults and pregnancy\./);
 });
+
+test('resistive electric heating gets a low-priority heat-pump suggestion with CO₂ savings', () => {
+  const plan = engine.buildPlan(makeProfile({ heating: 'electric' }), { aqi: 120 });
+  const heatPump = plan.alternatives.find((a) => a.id === 'heat-pump');
+  assert.equal(heatPump.priority, 'low');
+  assert.equal(heatPump.impact.co2KgPerWeek, 12); // 18 kg (electric) − 6 kg (heat pump)
+  assert.match(heatPump.impact.explanation, /saving ~12 kg CO₂ per week from power-plant emissions/);
+  // Clean heating already in use → no heating swap at all.
+  const none = engine.buildPlan(makeProfile({ heating: 'heat_pump' }), { aqi: 120 });
+  assert.equal(
+    none.alternatives.some((a) => a.id === 'heat-pump' || a.id === 'clean-heating'),
+    false,
+  );
+});

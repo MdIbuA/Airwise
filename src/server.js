@@ -3,8 +3,7 @@
 const config = require('./config');
 const { createApp } = require('./app');
 const { createAirQualityService } = require('./services/airQuality');
-const { createAssistant } = require('./services/assistant');
-const { createProviders, DEFAULT_MODELS } = require('./services/llmProviders');
+const { createAssistant, createProviders, DEFAULT_MODELS } = require('./services/ai');
 
 const app = createApp({
   airQuality: createAirQualityService({

@@ -14,10 +14,11 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
  * Builds the Express app. Services are injected so tests can run fully offline.
  *
  * @param {object} deps
- * @param {{ getAirQuality: Function }} deps.airQuality
- * @param {{ narrate: Function, isActive: boolean }} deps.assistant
+ * @param {import('./routes/api').AirQualityService} deps.airQuality
+ * @param {import('./routes/api').AssistantService} deps.assistant
  * @param {number} [deps.rateLimitPerMinute] general API requests per minute per IP
- * @param {{ error: Function }} [deps.logger]
+ * @param {import('./types').Logger} [deps.logger]
+ * @returns {import('express').Express}
  */
 function createApp({ airQuality, assistant, rateLimitPerMinute = 30, logger = console }) {
   const app = express();

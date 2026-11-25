@@ -5,7 +5,8 @@ const { AppError } = require('../utils/errors');
 /**
  * Central error handler: only AppError messages (written for users) reach the
  * client; anything unexpected is logged server-side and returned as a generic 500.
- * @param {{ error: Function }} logger
+ * @param {import('../types').Logger} logger
+ * @returns {import('express').ErrorRequestHandler}
  */
 function createErrorHandler(logger) {
   // Express recognises error handlers by their four parameters.
