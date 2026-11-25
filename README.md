@@ -3,7 +3,7 @@
 [![CI](https://github.com/MdIbuA/Airwise/actions/workflows/ci.yml/badge.svg)](https://github.com/MdIbuA/Airwise/actions/workflows/ci.yml)
 [![Live demo](https://img.shields.io/badge/live%20demo-airwise--648g.onrender.com-22d3ee)](https://airwise-648g.onrender.com/)
 
-**▶ Try it live: https://airwise-648g.onrender.com/**
+**▶ Try it live: https://airwise-648g.onrender.com/** · **🎬 [Watch the 1:40 demo video (with voiceover)](https://drive.google.com/file/d/1LqjI4YP7Pm5LoO_NNbxvFTXnBPOIARU8/view?usp=sharing)**
 (free hosting: the first visit after a quiet spell can take ~30 s to wake up)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MdIbuA/Airwise)
@@ -24,6 +24,10 @@ It also produces a **shareable community alert** with no personal details. You c
 **Claude** (or Google Gemini, if configured) writes a short briefing from these results, lists the household's top three actions and answers the user's own question in plain language.
 
 ---
+
+## Demo video
+
+🎬 **[Watch the 1:40 narrated walkthrough on Google Drive](https://drive.google.com/file/d/1LqjI4YP7Pm5LoO_NNbxvFTXnBPOIARU8/view?usp=sharing)**: household form → instant plan → AQI and cleanest window → coach briefing → impact, routine, hacks and swaps → community alert.
 
 ## Screenshots
 
